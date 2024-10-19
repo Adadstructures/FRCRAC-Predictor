@@ -1,0 +1,9 @@
+streamlit
+numpy
+optuna
+catboost
+matplotlib
+tensorflow
+keras
+pandas
+joblib
