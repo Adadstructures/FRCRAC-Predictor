@@ -3,8 +3,8 @@ numpy
 optuna
 catboost
 matplotlib
-tensorflow
-keras
+tensorflow==2.9.0
+keras==2.9.0
 pandas
 joblib
 scikit-learn
