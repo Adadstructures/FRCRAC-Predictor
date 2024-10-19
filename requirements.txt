@@ -3,7 +3,7 @@ numpy
 optuna
 catboost
 matplotlib
-tensorflow
+tensorflow == 2.9.0
 keras
 pandas
 joblib
