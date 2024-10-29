@@ -12,8 +12,9 @@ import sklearn
 # Get the versions of the libraries
 versions = {
     "Streamlit": st.__version__,
+    "Numpy": np.__version__,
+    "Pandas": pd.__version__,
     "Optuna": optuna.__version__,
-    "CatBoost": catboost.__version__,
     "Matplotlib": matplotlib.__version__,
     "TensorFlow": tf.__version__,
     "Keras": keras.__version__,
