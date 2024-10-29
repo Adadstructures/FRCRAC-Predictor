@@ -1,10 +1,11 @@
 streamlit
+numpy==1.26.4
+pandas==2.2.3
+scipy==1.13.1
 optuna
-catboost
+catboost==1.2.7  
 matplotlib
 tensorflow
 keras
 joblib
 scikit-learn
-numpy==2.0.2
-pandas
