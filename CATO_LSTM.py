@@ -1,5 +1,6 @@
-import streamlit as st
-import numpy as np
+import pandas as pd
+import scipy
 
-# Display the numpy version
-st.write(f"Current Numpy version: {np.__version__}")
+# Display the versions
+st.write(f"Pandas version: {pd.__version__}")
+st.write(f"Scipy version: {scipy.__version__}")
