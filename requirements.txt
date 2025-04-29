@@ -9,3 +9,5 @@ tensorflow
 keras
 joblib
 scikit-learn
+plotly
+kaleido
