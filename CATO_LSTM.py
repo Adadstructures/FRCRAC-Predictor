@@ -8,8 +8,129 @@ import tensorflow as tf
 from keras.models import load_model
 from scipy import interpolate
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from io import BytesIO
+
+# Optimized plot_abaqus_style function with Abaqus enhancements
+def plot_abaqus_style(vertices, faces, scalar_per_face, title, colorbar_title, min_val=None, max_val=None, aspect_ratio=None, num_bands=10):
+    if min_val is None:
+        min_val = np.min(scalar_per_face)
+    if max_val is None:
+        max_val = np.max(scalar_per_face)
+
+    # Avoid division by zero
+    if max_val == min_val:
+        max_val = min_val + 1e-10
+
+    # Normalize scalars to [0, 1] for colorscale
+    normalized_scalars = (scalar_per_face - min_val) / (max_val - min_val)
+    normalized_scalars = np.clip(normalized_scalars, 0, 1)
+
+    # Define Abaqus-style color scheme (blue-cyan-green-yellow-orange-red)
+    abaqus_colors = [
+        (0, 0, 255),    # Blue
+        (0, 255, 255),  # Cyan
+        (0, 255, 0),    # Green
+        (255, 255, 0),  # Yellow
+        (255, 165, 0),  # Orange
+        (255, 0, 0)     # Red
+    ]
+    # Create discrete colorscale with num_bands
+    colorscale = []
+    for i in range(num_bands):
+        frac = i / (num_bands - 1)
+        idx = int(frac * (len(abaqus_colors) - 1))
+        rgb = abaqus_colors[idx]
+        colorscale.append([i / (num_bands - 1), f'rgb{rgb}'])
+    # Ensure the last color extends to 1.0
+    colorscale[-1][0] = 1.0
+
+    # Map scalars to discrete bands
+    band_edges = np.linspace(0, 1, num_bands, endpoint=True)
+    color_indices = np.digitize(normalized_scalars, band_edges, right=True)
+    color_indices = np.clip(color_indices, 0, num_bands - 1)
+    face_colors = [colorscale[min(idx, num_bands - 1)][1] for idx in color_indices]
+
+    # Colorbar tick values (mapped back to original scalar range)
+    tick_vals = np.linspace(min_val, max_val, num_bands)
+
+    # Custom scientific notation formatter
+    def format_sci_notation(val):
+        if abs(val) < 1e-10:
+            return "+0.00e+00"
+        coeff, exp = f"{val:.2e}".split('e')
+        exp = int(exp)
+        sign = '+' if exp >= 0 else '-'
+        exp_str = f"{abs(exp):02d}"
+        return f"{coeff}e{sign}{exp_str}"
+
+    tick_text = [format_sci_notation(v) for v in tick_vals]
+
+    fig = go.Figure()
+
+    # Single Mesh3d trace for the entire mesh
+    fig.add_trace(go.Mesh3d(
+        x=vertices[:, 0],
+        y=vertices[:, 1],
+        z=vertices[:, 2],
+        i=faces[:, 0],
+        j=faces[:, 1],
+        k=faces[:, 2],
+        facecolor=face_colors,
+        intensity=scalar_per_face,
+        colorscale=colorscale,
+        showscale=True,
+        flatshading=True,
+        opacity=1.0,
+        hoverinfo='skip',
+        lighting=dict(ambient=1.0, diffuse=0.1, specular=0.0, roughness=1.0),
+        colorbar=dict(
+            title=colorbar_title,
+            tickvals=tick_vals,
+            ticktext=tick_text,
+            len=0.75,
+            x=1.05
+        )
+    ))
+
+    # Single Scatter3d trace for wireframe
+    edges = set(tuple(sorted([face[i], face[(i + 1) % 3]])) for face in faces for i in range(3))
+    wireframe_x, wireframe_y, wireframe_z = [], [], []
+    for v0, v1 in edges:
+        wireframe_x.extend([vertices[v0, 0], vertices[v1, 0], None])
+        wireframe_y.extend([vertices[v0, 1], vertices[v1, 1], None])
+        wireframe_z.extend([vertices[v0, 2], vertices[v1, 2], None])
+    
+    fig.add_trace(go.Scatter3d(
+        x=wireframe_x,
+        y=wireframe_y,
+        z=wireframe_z,
+        mode='lines',
+        line=dict(color='black', width=2),
+        showlegend=False,
+        hoverinfo='skip'
+    ))
+
+    fig.update_layout(
+        title=title,
+        scene=dict(
+            xaxis_title="X",
+            yaxis_title="Y",
+            zaxis_title="Z",
+            aspectmode="manual",
+            aspectratio=aspect_ratio,
+            camera=dict(eye=dict(x=1.5, y=1.5, z=2))
+        )
+    )
+
+    return fig
+
+# Helper function to compute face scalars
+def compute_face_scalars(vertices_scalar, faces):
+    """Compute scalar values per face by averaging vertex scalars."""
+    face_scalars = np.zeros(len(faces))
+    for i, face in enumerate(faces):
+        face_scalars[i] = np.mean(vertices_scalar[face])
+    return face_scalars
 
 # Load targets from the new saved .npy files
 targets_1_axial = np.load('targets_axial.npy')
@@ -66,7 +187,7 @@ with st.form("input_form"):
     st.subheader("Stress-Strain Model")
     stress_strain_model = st.selectbox("Stress-Strain Model", ["CATO-LSTMO", "CATO-MZW"], index=0, key="stress_strain_model_selectbox")
 
-    st.subheader("Finite Element Parameters")
+    st.subheader("Loading Parameters")
     load_unit = st.selectbox('Select Load Unit', ['kN', 'MPa'], key="load_unit_selectbox")
     if load_unit == 'kN':
         applied_load_input = st.number_input('Applied Load (kN)', min_value=0.0, max_value=5000.0, value=2000.0)
@@ -105,7 +226,6 @@ if submit_button:
         Modulus_1 = concrete_modulus
         Modulus_2 = (cato_strength_prediction - f_o) / cato_strain_prediction
 
-        # Ensure strictly increasing strain values
         strain_step = unconfined_strain / 20
         section_1 = np.arange(0, unconfined_strain + strain_step, strain_step)
         section_2 = np.arange(unconfined_strain + strain_step, cato_strain_prediction + strain_step, strain_step)
@@ -115,11 +235,10 @@ if submit_button:
         stress_values = ((((Modulus_1 * unconfined_strain) - f_o) * np.exp(-strain_values / unconfined_strain)) +
                         f_o + (k_Correction * Modulus_2 * strain_values)) * (1 - np.exp(-strain_values / unconfined_strain))
         
-        # Ensure strictly increasing stress values
         mask = np.ones(len(stress_values), dtype=bool)
         mask[1:] = np.diff(stress_values) > 0
         axial_strains = strain_values[mask]
-        axial_stresses = stress_values[mask] * 1e6  # Pa
+        axial_stresses = stress_values[mask] * 1e6
         hoop_stresses = None
         hoop_strains = None
 
@@ -137,10 +256,10 @@ if submit_button:
         predicted_targets_axial_denorm = predicted_targets_axial * targets_1_axial.max(axis=(0, 1))
         predicted_targets_hoop_denorm = predicted_targets_hoop * targets_1_hoop.max(axis=(0, 1))
 
-        predicted_stress_axial = np.insert(predicted_targets_axial_denorm[0, :, 0], 0, 0) * 1e6  # Pa
+        predicted_stress_axial = np.insert(predicted_targets_axial_denorm[0, :, 0], 0, 0) * 1e6
         predicted_strain_axial = np.insert(predicted_targets_axial_denorm[0, :, 1], 0, 0)
         
-        predicted_stress_hoop = np.insert(predicted_targets_hoop_denorm[0, :, 0], 0, 0) * 1e6  # Pa
+        predicted_stress_hoop = np.insert(predicted_targets_hoop_denorm[0, :, 0], 0, 0) * 1e6
         predicted_strain_hoop = np.insert(-predicted_targets_hoop_denorm[0, :, 1], 0, 0)
         
         ultimate_axial_strength = np.max(predicted_stress_axial) / 1e6
@@ -159,7 +278,6 @@ if submit_button:
         hoop_stresses = predicted_stress_hoop
         hoop_strains = np.abs(predicted_strain_hoop)
 
-    # Store predictions including rupture_strain
     st.session_state.predictions = {
         'axial_stresses': axial_stresses,
         'axial_strains': axial_strains,
@@ -187,7 +305,7 @@ if submit_button:
     st.write(f"Strength Enhancement: {strength_enhancement_ratio:.3f}")
     st.write(f"Strain Enhancement: {strain_enhancement_ratio:.3f}")
 
-# FE and Visualisation Logic
+# Visualisation Logic
 if st.session_state.predictions:
     preds = st.session_state.predictions
     axial_stresses = preds['axial_stresses']
@@ -195,10 +313,10 @@ if st.session_state.predictions:
     hoop_stresses = preds['hoop_stresses']
     hoop_strains = preds['hoop_strains']
     rupture_strain = preds['rupture_strain']
-    confinement_stress = preds['confinement_stress'] 
+    confinement_stress = preds['confinement_stress']
     stress_strain_model = st.session_state.stress_strain_model
 
-    # FE Setup
+    # Visualisation Analytical Setup
     epsilon_frp_ult = rupture_strain if stress_strain_model == 'CATO-MZW' else np.max(hoop_strains) if hoop_strains is not None else 0.0103026467
     stress_threshold = 15e6
     axial_mask = axial_stresses >= stress_threshold
@@ -264,8 +382,53 @@ if st.session_state.predictions:
         mask[1:] = np.diff(load[indices]) > 0
         return (displacement[indices][mask], load[indices][mask], strain[indices][mask], stress[indices][mask])
 
+    # Cache mesh generation to avoid recomputation
+    @st.cache_data
+    def generate_mesh(diameter_m, height_m, frp_thickness, n_theta=30, n_z=30):
+        radius = diameter_m / 2
+        frp_radius = radius + (frp_thickness / 1000)
+        
+        theta = np.linspace(0, 2 * np.pi, n_theta, endpoint=False)
+        z_levels = np.linspace(0, height_m, n_z)
+        
+        # Concrete vertices
+        vertices = np.array([[radius * np.cos(t), radius * np.sin(t), z_val] for z_val in z_levels for t in theta])
+        vertices = np.vstack([[0, 0, 0], vertices, [0, 0, height_m]])
+        
+        # Concrete faces
+        full_faces = []
+        for i in range(n_z - 1):
+            for j in range(n_theta):
+                v0 = i * n_theta + j
+                v1 = i * n_theta + (j + 1) % n_theta
+                v2 = (i + 1) * n_theta + j
+                v3 = (i + 1) * n_theta + (j + 1) % n_theta
+                full_faces.append([v0 + 1, v1 + 1, v2 + 1])
+                full_faces.append([v1 + 1, v3 + 1, v2 + 1])
+        full_faces = np.array(full_faces)
+        for j in range(n_theta):
+            full_faces = np.vstack([full_faces, [0, 1 + j, 1 + (j + 1) % n_theta]])
+        top_base_idx = 1 + (n_z - 1) * n_theta
+        for j in range(n_theta):
+            full_faces = np.vstack([full_faces, [len(vertices) - 1, top_base_idx + (j + 1) % n_theta, top_base_idx + j]])
+        
+        # FRP vertices and faces
+        frp_vertices = np.array([[frp_radius * np.cos(t), frp_radius * np.sin(t), z_val] for z_val in z_levels for t in theta])
+        full_frp_faces = []
+        for i in range(n_z - 1):
+            for j in range(n_theta):
+                v0 = i * n_theta + j
+                v1 = i * n_theta + (j + 1) % n_theta
+                v2 = (i + 1) * n_theta + j
+                v3 = (i + 1) * n_theta + (j + 1) % n_theta
+                full_frp_faces.append([v0, v1, v2])
+                full_frp_faces.append([v1, v3, v2])
+        full_frp_faces = np.array(full_frp_faces)
+        
+        return vertices, full_faces, frp_vertices, full_frp_faces
+
     # Visualisation
-    st.subheader("ML-FEM Post-Processing Visualisation")
+    st.subheader("Post-Processing Visualisation")
     selected_plot = st.selectbox(
         "Select the plot to display",
         ["Load-Displacement Curve", "Stress-Strain Curve", "Stress Contours", "Strain Contours",
@@ -284,7 +447,8 @@ if st.session_state.predictions:
     hoop_strain_from_axial = hoop_strain_curve(stress) if stress_strain_model == 'CATO-LSTMO' else None
     hoop_strain_percent = hoop_strain_from_axial * 100 if stress_strain_model == 'CATO-LSTMO' else None
 
-    n_theta, n_z = 50, 50
+    # Generate 3D field data
+    n_theta, n_z = 30, 30  # Reduced resolution
     theta = np.linspace(0, 2 * np.pi, n_theta)
     z = np.linspace(0, height_m, n_z)
     theta, z = np.meshgrid(theta, z)
@@ -309,57 +473,67 @@ if st.session_state.predictions:
     load_3d = total_stress_3d * area
     load_3d_kN = load_3d / 1000
 
-    theta = np.linspace(0, 2 * np.pi, n_theta, endpoint=False)
-    z_levels = np.linspace(0, height_m, n_z)
-    vertices = np.array([[radius * np.cos(t), radius * np.sin(t), z_val] for z_val in z_levels for t in theta])
-    vertices = np.vstack([[0, 0, 0], vertices, [0, 0, height_m]])
+    # Generate mesh
+    vertices, full_faces, frp_vertices, full_frp_faces = generate_mesh(diameter_m, height_m, preds['frp_thickness'], n_theta, n_z)
 
-    full_faces = []
-    for i in range(n_z - 1):
-        for j in range(n_theta):
-            v0 = i * n_theta + j
-            v1 = i * n_theta + (j + 1) % n_theta
-            v2 = (i + 1) * n_theta + j
-            v3 = (i + 1) * n_theta + (j + 1) % n_theta
-            full_faces.append([v0 + 1, v1 + 1, v2 + 1])
-            full_faces.append([v1 + 1, v3 + 1, v2 + 1])
-    full_faces = np.array(full_faces)
-    for j in range(n_theta):
-        full_faces = np.vstack([full_faces, [0, 1 + j, 1 + (j + 1) % n_theta]])
-    top_base_idx = 1 + (n_z - 1) * n_theta
-    for j in range(n_theta):
-        full_faces = np.vstack([full_faces, [len(vertices) - 1, top_base_idx + (j + 1) % n_theta, top_base_idx + j]])
-
+    # Compute vertex scalars
     total_stress_vertices = np.array([total_stress_3d[0, 0]] + [total_stress_3d[i, j] for i in range(n_z) for j in range(n_theta)] + [total_stress_3d[-1, 0]]) / 1e6
     strain_vertices = np.array([strain_3d_percent[0, 0]] + [strain_3d_percent[i, j] for i in range(n_z) for j in range(n_theta)] + [strain_3d_percent[-1, 0]])
     load_vertices = np.array([load_3d_kN[0, 0]] + [load_3d_kN[i, j] for i in range(n_z) for j in range(n_theta)] + [load_3d_kN[-1, 0]])
     displacement_vertices = np.array([displacement_3d_mm[0, 0]] + [displacement_3d_mm[i, j] for i in range(n_z) for j in range(n_theta)] + [displacement_3d_mm[-1, 0]])
 
-    frp_vertices = np.array([[frp_radius * np.cos(t), frp_radius * np.sin(t), z_val] for z_val in z_levels for t in theta])
-    full_frp_faces = []
-    for i in range(n_z - 1):
+    # Deformed vertices for displacement contours
+    vertices_deformed = vertices.copy()
+    vertices_deformed[0, 2] += displacement_vertices[0] / 1000
+    for i in range(n_z):
         for j in range(n_theta):
-            v0 = i * n_theta + j
-            v1 = i * n_theta + (j + 1) % n_theta
-            v2 = (i + 1) * n_theta + j
-            v3 = (i + 1) * n_theta + (j + 1) % n_theta
-            full_frp_faces.append([v0, v1, v2])
-            full_frp_faces.append([v1, v3, v2])
-    full_frp_faces = np.array(full_frp_faces)
+            vertex_idx = 1 + i * n_theta + j
+            vertices_deformed[vertex_idx, 2] += displacement_vertices[vertex_idx] / 1000
+    vertices_deformed[-1, 2] += displacement_vertices[-1] / 1000
 
-    edges = set(tuple(sorted([face[i], face[(i + 1) % 3]])) for face in full_faces for i in range(3))
-    edges = list(edges)
-    wireframe_x = [vertices[v0, 0] for v0, v1 in edges] + [vertices[v1, 0] for v0, v1 in edges] + [None] * len(edges)
-    wireframe_y = [vertices[v0, 1] for v0, v1 in edges] + [vertices[v1, 1] for v0, v1 in edges] + [None] * len(edges)
-    wireframe_z = [vertices[v0, 2] for v0, v1 in edges] + [vertices[v1, 2] for v0, v1 in edges] + [None] * len(edges)
-
-    frp_edges = set(tuple(sorted([face[i], face[(i + 1) % 3]])) for face in full_frp_faces for i in range(3))
-    frp_edges = list(frp_edges)
-    frp_wireframe_x = [frp_vertices[v0, 0] for v0, v1 in frp_edges] + [frp_vertices[v1, 0] for v0, v1 in frp_edges] + [None] * len(frp_edges)
-    frp_wireframe_y = [frp_vertices[v0, 1] for v0, v1 in frp_edges] + [frp_vertices[v1, 1] for v0, v1 in frp_edges] + [None] * len(frp_edges)
-    frp_wireframe_z = [frp_vertices[v0, 2] for v0, v1 in frp_edges] + [frp_vertices[v1, 2] for v0, v1 in frp_edges] + [None] * len(frp_edges)
+    frp_vertices_deformed = frp_vertices.copy()
+    for i in range(n_z):
+        for j in range(n_theta):
+            vertex_idx = i * n_theta + j
+            frp_vertices_deformed[vertex_idx, 2] += displacement_vertices[1 + i * n_theta + j] / 1000
 
     aspect_ratio = {'x': 1, 'y': 1, 'z': height_m / diameter_m}
+
+    # Define plot parameters for each contour type
+    plot_params = {
+        "Stress Contours": {
+            "scalar": compute_face_scalars(total_stress_vertices, full_faces),
+            "title": "Stress Contours",
+            "colorbar_title": "Stress (MPa)",
+            "vertices": vertices,
+            "min_val": np.min(total_stress_vertices),
+            "max_val": np.max(total_stress_vertices)
+        },
+        "Strain Contours": {
+            "scalar": compute_face_scalars(strain_vertices, full_faces),
+            "title": "Strain Contours",
+            "colorbar_title": "Strain (%)",
+            "vertices": vertices,
+            "min_val": np.min(strain_vertices),
+            "max_val": np.max(strain_vertices)
+        },
+        "Load Contours": {
+            "scalar": compute_face_scalars(load_vertices, full_faces),
+            "title": "Internal Load Distribution Contours",
+            "colorbar_title": "Internal Load Distribution (kN)",
+            "vertices": vertices,
+            "min_val": np.min(load_vertices),
+            "max_val": np.max(load_vertices)
+        },
+        "Displacement Contours": {
+            "scalar": compute_face_scalars(displacement_vertices, full_faces),
+            "title": "Displacement Contours",
+            "colorbar_title": "Displacement (mm)",
+            "vertices": vertices_deformed,
+            "min_val": np.min(displacement_vertices),
+            "max_val": np.max(displacement_vertices)
+        }
+    }
 
     if selected_plot == "Load-Displacement Curve":
         fig, ax = plt.subplots()
@@ -422,173 +596,56 @@ if st.session_state.predictions:
         )
         plt.close(fig)
 
-    elif selected_plot == "Stress Contours":
-        fig = go.Figure()
-        if len(full_faces) > 0:
-            fig.add_trace(go.Mesh3d(x=vertices[:, 0], y=vertices[:, 1], z=vertices[:, 2], 
-                                i=full_faces[:, 0], j=full_faces[:, 1], k=full_faces[:, 2], 
-                                intensity=total_stress_vertices, colorscale='Viridis', 
-                                colorbar=dict(title="Stress (MPa)", tickformat=".2f", len=0.75, x=1.05), 
-                                lighting=dict(ambient=1.0, diffuse=0.1, specular=0.0, roughness=1.0), 
-                                name="Concrete Stress"))
-        if len(full_frp_faces) > 0:
-            fig.add_trace(go.Mesh3d(x=frp_vertices[:, 0], y=frp_vertices[:, 1], z=frp_vertices[:, 2], 
-                                i=full_frp_faces[:, 0], j=full_frp_faces[:, 1], k=full_frp_faces[:, 2], 
-                                color='gray', opacity=0.3, 
-                                lighting=dict(ambient=1.0, diffuse=0.1, specular=0.0, roughness=1.0), 
-                                showlegend=False))
-        if len(wireframe_x) > 0:
-            fig.add_trace(go.Scatter3d(x=wireframe_x, y=wireframe_y, z=wireframe_z, mode='lines', 
-                                    line=dict(color='black', width=1), opacity=0.5, showlegend=False))
-        if len(frp_wireframe_x) > 0:
-            fig.add_trace(go.Scatter3d(x=frp_wireframe_x, y=frp_wireframe_y, z=frp_wireframe_z, mode='lines', 
-                                    line=dict(color='black', width=1), opacity=0.5, showlegend=False))
-        fig.update_layout(title="Stress Contours", height=600, 
-                        scene=dict(aspectmode="manual", aspectratio=aspect_ratio, 
-                                xaxis_title="X", yaxis_title="Y", zaxis_title="Z", 
-                                camera=dict(eye=dict(x=1.5, y=1.5, z=2))))
-        st.plotly_chart(fig)
-
-        buf = BytesIO()
-        fig.write_image(buf, format="png", engine="kaleido")
-        buf.seek(0)
-        st.download_button(
-            label="Download Stress Contours",
-            data=buf,
-            file_name="stress_contours.png",
-            mime="image/png"
+    elif selected_plot in ["Stress Contours", "Strain Contours", "Load Contours", "Displacement Contours"]:
+        params = plot_params[selected_plot]
+        
+        # Create figure and plot concrete mesh
+        fig = plot_abaqus_style(
+            vertices=params["vertices"],
+            faces=full_faces,
+            scalar_per_face=params["scalar"],
+            title=params["title"],
+            colorbar_title=params["colorbar_title"],
+            min_val=params["min_val"],
+            max_val=params["max_val"],
+            aspect_ratio=aspect_ratio,
+            num_bands=10  # Adjustable for more/less bands
         )
 
-    elif selected_plot == "Strain Contours":
-        fig = go.Figure()
-        if len(full_faces) > 0:
-            fig.add_trace(go.Mesh3d(x=vertices[:, 0], y=vertices[:, 1], z=vertices[:, 2], 
-                                i=full_faces[:, 0], j=full_faces[:, 1], k=full_faces[:, 2], 
-                                intensity=strain_vertices, colorscale='Cividis', 
-                                colorbar=dict(title="Strain (%)", tickformat=".2f", len=0.75, x=1.05), 
-                                lighting=dict(ambient=1.0, diffuse=0.1, specular=0.0, roughness=1.0), 
-                                name="Concrete Strain"))
+        # Add FRP layer
         if len(full_frp_faces) > 0:
-            fig.add_trace(go.Mesh3d(x=frp_vertices[:, 0], y=frp_vertices[:, 1], z=frp_vertices[:, 2], 
-                                i=full_frp_faces[:, 0], j=full_frp_faces[:, 1], k=full_frp_faces[:, 2], 
-                                color='gray', opacity=0.3, 
-                                lighting=dict(ambient=1.0, diffuse=0.1, specular=0.0, roughness=1.0), 
-                                showlegend=False))
-        if len(wireframe_x) > 0:
-            fig.add_trace(go.Scatter3d(x=wireframe_x, y=wireframe_y, z=wireframe_z, mode='lines', 
-                                    line=dict(color='black', width=1), opacity=0.5, showlegend=False))
-        if len(frp_wireframe_x) > 0:
-            fig.add_trace(go.Scatter3d(x=frp_wireframe_x, y=frp_wireframe_y, z=frp_wireframe_z, mode='lines', 
-                                    line=dict(color='black', width=1), opacity=0.5, showlegend=False))
-        fig.update_layout(title="Strain Contours", height=600, 
-                        scene=dict(aspectmode="manual", aspectratio=aspect_ratio, 
-                                xaxis_title="X", yaxis_title="Y", zaxis_title="Z", 
-                                camera=dict(eye=dict(x=1.5, y=1.5, z=2))))
+            vertices_for_frp = frp_vertices_deformed if selected_plot == "Displacement Contours" else frp_vertices
+            fig.add_trace(go.Mesh3d(
+                x=vertices_for_frp[:, 0], y=vertices_for_frp[:, 1], z=vertices_for_frp[:, 2],
+                i=full_frp_faces[:, 0], j=full_frp_faces[:, 1], k=full_frp_faces[:, 2],
+                color='gray', opacity=0.3,
+                lighting=dict(ambient=1.0, diffuse=0.1, specular=0.0, roughness=1.0),
+                showlegend=False
+            ))
+
+        # Add FRP wireframe
+        frp_edges = set(tuple(sorted([face[i], face[(i + 1) % 3]])) for face in full_frp_faces for i in range(3))
+        frp_wireframe_x, frp_wireframe_y, frp_wireframe_z = [], [], []
+        vertices_for_frp = frp_vertices_deformed if selected_plot == "Displacement Contours" else frp_vertices
+        for v0, v1 in frp_edges:
+            frp_wireframe_x.extend([vertices_for_frp[v0, 0], vertices_for_frp[v1, 0], None])
+            frp_wireframe_y.extend([vertices_for_frp[v0, 1], vertices_for_frp[v1, 1], None])
+            frp_wireframe_z.extend([vertices_for_frp[v0, 2], vertices_for_frp[v1, 2], None])
+        fig.add_trace(go.Scatter3d(
+            x=frp_wireframe_x, y=frp_wireframe_y, z=frp_wireframe_z,
+            mode='lines', line=dict(color='black', width=1), opacity=0.5, showlegend=False
+        ))
+
         st.plotly_chart(fig)
 
+        # Download button
         buf = BytesIO()
         fig.write_image(buf, format="png", engine="kaleido")
         buf.seek(0)
         st.download_button(
-            label="Download Strain Contours",
+            label=f"Download {params['title']}",
             data=buf,
-            file_name="strain_contours.png",
-            mime="image/png"
-        )
-
-    elif selected_plot == "Load Contours":
-        fig = go.Figure()
-        if len(full_faces) > 0:
-            fig.add_trace(go.Mesh3d(x=vertices[:, 0], y=vertices[:, 1], z=vertices[:, 2], 
-                                i=full_faces[:, 0], j=full_faces[:, 1], k=full_faces[:, 2], 
-                                intensity=load_vertices, colorscale='Plasma', 
-                                colorbar=dict(title="Internal Load Distribution (kN)", tickformat=".2f", len=0.75, x=1.05), 
-                                lighting=dict(ambient=1.0, diffuse=0.1, specular=0.0, roughness=1.0), 
-                                name="Concrete Load"))
-        if len(full_frp_faces) > 0:
-            fig.add_trace(go.Mesh3d(x=frp_vertices[:, 0], y=frp_vertices[:, 1], z=frp_vertices[:, 2], 
-                                i=full_frp_faces[:, 0], j=full_frp_faces[:, 1], k=full_frp_faces[:, 2], 
-                                color='gray', opacity=0.3, 
-                                lighting=dict(ambient=1.0, diffuse=0.1, specular=0.0, roughness=1.0), 
-                                showlegend=False))
-        if len(wireframe_x) > 0:
-            fig.add_trace(go.Scatter3d(x=wireframe_x, y=wireframe_y, z=wireframe_z, mode='lines', 
-                                    line=dict(color='black', width=1), opacity=0.5, showlegend=False))
-        if len(frp_wireframe_x) > 0:
-            fig.add_trace(go.Scatter3d(x=frp_wireframe_x, y=frp_wireframe_y, z=frp_wireframe_z, mode='lines', 
-                                    line=dict(color='black', width=1), opacity=0.5, showlegend=False))
-        fig.update_layout(title="Internal Load Distribution Contours", height=600, 
-                        scene=dict(aspectmode="manual", aspectratio=aspect_ratio, 
-                                xaxis_title="X", yaxis_title="Y", zaxis_title="Z", 
-                                camera=dict(eye=dict(x=1.5, y=1.5, z=2))))
-        st.plotly_chart(fig)
-
-        buf = BytesIO()
-        fig.write_image(buf, format="png", engine="kaleido")
-        buf.seek(0)
-        st.download_button(
-            label="Download Internal Load Distribution Contours",
-            data=buf,
-            file_name="load_contours.png",
-            mime="image/png"
-        )
-
-    elif selected_plot == "Displacement Contours":
-        vertices_deformed = vertices.copy()
-        vertices_deformed[0, 2] += displacement_vertices[0] / 1000
-        for i in range(n_z):
-            for j in range(n_theta):
-                vertex_idx = 1 + i * n_theta + j
-                vertices_deformed[vertex_idx, 2] += displacement_vertices[vertex_idx] / 1000
-        vertices_deformed[-1, 2] += displacement_vertices[-1] / 1000
-
-        frp_vertices_deformed = frp_vertices.copy()
-        for i in range(n_z):
-            for j in range(n_theta):
-                vertex_idx = i * n_theta + j
-                frp_vertices_deformed[vertex_idx, 2] += displacement_vertices[1 + i * n_theta + j] / 1000
-
-        wireframe_x_deformed = [vertices_deformed[v0, 0] for v0, v1 in edges] + [vertices_deformed[v1, 0] for v0, v1 in edges] + [None] * len(edges)
-        wireframe_y_deformed = [vertices_deformed[v0, 1] for v0, v1 in edges] + [vertices_deformed[v1, 1] for v0, v1 in edges] + [None] * len(edges)
-        wireframe_z_deformed = [vertices_deformed[v0, 2] for v0, v1 in edges] + [vertices_deformed[v1, 2] for v0, v1 in edges] + [None] * len(edges)
-
-        frp_wireframe_x_deformed = [frp_vertices_deformed[v0, 0] for v0, v1 in frp_edges] + [frp_vertices_deformed[v1, 0] for v0, v1 in frp_edges] + [None] * len(frp_edges)
-        frp_wireframe_y_deformed = [frp_vertices_deformed[v0, 1] for v0, v1 in frp_edges] + [frp_vertices_deformed[v1, 1] for v0, v1 in frp_edges] + [None] * len(frp_edges)
-        frp_wireframe_z_deformed = [frp_vertices_deformed[v0, 2] for v0, v1 in frp_edges] + [frp_vertices_deformed[v1, 2] for v0, v1 in frp_edges] + [None] * len(frp_edges)
-
-        fig = go.Figure()
-        if len(full_faces) > 0:
-            fig.add_trace(go.Mesh3d(x=vertices_deformed[:, 0], y=vertices_deformed[:, 1], z=vertices_deformed[:, 2], 
-                                i=full_faces[:, 0], j=full_faces[:, 1], k=full_faces[:, 2], 
-                                intensity=displacement_vertices, colorscale='Magma', 
-                                colorbar=dict(title="Displacement (mm)", tickformat=".2f", len=0.75, x=1.05), 
-                                lighting=dict(ambient=1.0, diffuse=0.1, specular=0.0, roughness=1.0), 
-                                name="Concrete Displacement"))
-        if len(full_frp_faces) > 0:
-            fig.add_trace(go.Mesh3d(x=frp_vertices_deformed[:, 0], y=frp_vertices_deformed[:, 1], z=frp_vertices_deformed[:, 2], 
-                                i=full_frp_faces[:, 0], j=full_frp_faces[:, 1], k=full_frp_faces[:, 2], 
-                                color='gray', opacity=0.3, 
-                                lighting=dict(ambient=1.0, diffuse=0.1, specular=0.0, roughness=1.0), 
-                                showlegend=False))
-        if len(wireframe_x_deformed) > 0:
-            fig.add_trace(go.Scatter3d(x=wireframe_x_deformed, y=wireframe_y_deformed, z=wireframe_z_deformed, 
-                                    mode='lines', line=dict(color='black', width=1), opacity=0.5, showlegend=False))
-        if len(frp_wireframe_x_deformed) > 0:
-            fig.add_trace(go.Scatter3d(x=frp_wireframe_x_deformed, y=frp_wireframe_y_deformed, z=frp_wireframe_z_deformed, 
-                                    mode='lines', line=dict(color='black', width=1), opacity=0.5, showlegend=False))
-        fig.update_layout(title="Displacement Contours", height=600, 
-                        scene=dict(aspectmode="manual", aspectratio=aspect_ratio, 
-                                xaxis_title="X", yaxis_title="Y", zaxis_title="Z", 
-                                camera=dict(eye=dict(x=1.5, y=1.5, z=2))))
-        st.plotly_chart(fig)
-
-        buf = BytesIO()
-        fig.write_image(buf, format="png", engine="kaleido")
-        buf.seek(0)
-        st.download_button(
-            label="Download Displacement Contours",
-            data=buf,
-            file_name="displacement_contours.png",
+            file_name=f"{params['title'].replace(' ', '_').lower()}.png",
             mime="image/png"
         )
 
@@ -603,27 +660,6 @@ st.markdown("""
     2. Three types of recycled aggregates (RA) were considered: RCA, RCL, RBA.
     3. Two types of FRP were considered: GFRP and CFRP.
     4. CATO-MZW: Hybridised Categorical Boosting with modified Zhou and Wu model (axial stress-strain only).
-    5. CATO-LSTMO: Hybridised Categorical Boosting and Long Short-Term Memory (axial and hoop stress-strain).
-    6. Finite Element Method is integrated with the ML framework for visualisation.
+    5. CATO-LSTMO: Hybridised Categorical Boosting with Long-Short Term Memory Optimisation (axial and hoop stress-strains).
+    6. Visualizations are generated using ML predictions and analytical post-processing, styled to resemble Abaqus FEA outputs for familiarity.
 """)
-
-footer = """
-<style>
-.footer {
-    position: fixed;
-    left: 0;
-    bottom: 0;
-    width: 100%;
-    background-color: #f1f1f1;
-    text-align: center;
-    padding: 10px;
-    font-size: 12px;
-    color: #6c757d;
-}
-</style>
-<div class="footer">
-    <p>© 2024 My Streamlit App. All rights reserved. | Temitope E. Dada, Guobin Gong, Jun Xia, Luigi Di Sarno | For Queries: <a href="mailto: T.Dada19@student.xjtlu.edu.cn"> T.Dada19@student.xjtlu.edu.cn</a></p>
-</div>
-"""
-
-st.markdown(footer, unsafe_allow_html=True)
