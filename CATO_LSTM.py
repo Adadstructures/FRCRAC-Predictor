@@ -7,53 +7,42 @@ import joblib
 import tensorflow as tf
 from keras.models import load_model
 from scipy import interpolate
+from scipy.interpolate import interp1d
 import plotly.graph_objects as go
 from io import BytesIO
+import os
 
-# Optimized plot_abaqus_style function with Abaqus enhancements
+# Optimized plot_abaqus_style function (unused but kept for reference)
 def plot_abaqus_style(vertices, faces, scalar_per_face, title, colorbar_title, min_val=None, max_val=None, aspect_ratio=None, num_bands=10):
     if min_val is None:
         min_val = np.min(scalar_per_face)
     if max_val is None:
         max_val = np.max(scalar_per_face)
 
-    # Avoid division by zero
     if max_val == min_val:
         max_val = min_val + 1e-10
 
-    # Normalize scalars to [0, 1] for colorscale
     normalized_scalars = (scalar_per_face - min_val) / (max_val - min_val)
     normalized_scalars = np.clip(normalized_scalars, 0, 1)
 
-    # Define Abaqus-style color scheme (blue-cyan-green-yellow-orange-red)
     abaqus_colors = [
-        (0, 0, 255),    # Blue
-        (0, 255, 255),  # Cyan
-        (0, 255, 0),    # Green
-        (255, 255, 0),  # Yellow
-        (255, 165, 0),  # Orange
-        (255, 0, 0)     # Red
+        (0, 0, 255), (0, 255, 255), (0, 255, 0), (255, 255, 0), (255, 165, 0), (255, 0, 0)
     ]
-    # Create discrete colorscale with num_bands
     colorscale = []
     for i in range(num_bands):
         frac = i / (num_bands - 1)
         idx = int(frac * (len(abaqus_colors) - 1))
         rgb = abaqus_colors[idx]
         colorscale.append([i / (num_bands - 1), f'rgb{rgb}'])
-    # Ensure the last color extends to 1.0
     colorscale[-1][0] = 1.0
 
-    # Map scalars to discrete bands
     band_edges = np.linspace(0, 1, num_bands, endpoint=True)
     color_indices = np.digitize(normalized_scalars, band_edges, right=True)
     color_indices = np.clip(color_indices, 0, num_bands - 1)
     face_colors = [colorscale[min(idx, num_bands - 1)][1] for idx in color_indices]
 
-    # Colorbar tick values (mapped back to original scalar range)
     tick_vals = np.linspace(min_val, max_val, num_bands)
 
-    # Custom scientific notation formatter
     def format_sci_notation(val):
         if abs(val) < 1e-10:
             return "+0.00e+00"
@@ -67,32 +56,15 @@ def plot_abaqus_style(vertices, faces, scalar_per_face, title, colorbar_title, m
 
     fig = go.Figure()
 
-    # Single Mesh3d trace for the entire mesh
     fig.add_trace(go.Mesh3d(
-        x=vertices[:, 0],
-        y=vertices[:, 1],
-        z=vertices[:, 2],
-        i=faces[:, 0],
-        j=faces[:, 1],
-        k=faces[:, 2],
-        facecolor=face_colors,
-        intensity=scalar_per_face,
-        colorscale=colorscale,
-        showscale=True,
-        flatshading=True,
-        opacity=1.0,
-        hoverinfo='skip',
+        x=vertices[:, 0], y=vertices[:, 1], z=vertices[:, 2],
+        i=faces[:, 0], j=faces[:, 1], k=faces[:, 2],
+        facecolor=face_colors, intensity=scalar_per_face, colorscale=colorscale,
+        showscale=True, flatshading=True, opacity=1.0, hoverinfo='skip',
         lighting=dict(ambient=1.0, diffuse=0.1, specular=0.0, roughness=1.0),
-        colorbar=dict(
-            title=colorbar_title,
-            tickvals=tick_vals,
-            ticktext=tick_text,
-            len=0.75,
-            x=1.05
-        )
+        colorbar=dict(title=colorbar_title, tickvals=tick_vals, ticktext=tick_text, len=0.75, x=1.05)
     ))
 
-    # Single Scatter3d trace for wireframe
     edges = set(tuple(sorted([face[i], face[(i + 1) % 3]])) for face in faces for i in range(3))
     wireframe_x, wireframe_y, wireframe_z = [], [], []
     for v0, v1 in edges:
@@ -101,23 +73,15 @@ def plot_abaqus_style(vertices, faces, scalar_per_face, title, colorbar_title, m
         wireframe_z.extend([vertices[v0, 2], vertices[v1, 2], None])
     
     fig.add_trace(go.Scatter3d(
-        x=wireframe_x,
-        y=wireframe_y,
-        z=wireframe_z,
-        mode='lines',
-        line=dict(color='black', width=2),
-        showlegend=False,
-        hoverinfo='skip'
+        x=wireframe_x, y=wireframe_y, z=wireframe_z,
+        mode='lines', line=dict(color='black', width=2), showlegend=False, hoverinfo='skip'
     ))
 
     fig.update_layout(
         title=title,
         scene=dict(
-            xaxis_title="X",
-            yaxis_title="Y",
-            zaxis_title="Z",
-            aspectmode="manual",
-            aspectratio=aspect_ratio,
+            xaxis_title="X", yaxis_title="Y", zaxis_title="Z",
+            aspectmode="manual", aspectratio=aspect_ratio,
             camera=dict(eye=dict(x=1.5, y=1.5, z=2))
         )
     )
@@ -126,26 +90,31 @@ def plot_abaqus_style(vertices, faces, scalar_per_face, title, colorbar_title, m
 
 # Helper function to compute face scalars
 def compute_face_scalars(vertices_scalar, faces):
-    """Compute scalar values per face by averaging vertex scalars."""
     face_scalars = np.zeros(len(faces))
     for i, face in enumerate(faces):
         face_scalars[i] = np.mean(vertices_scalar[face])
     return face_scalars
 
-# Load targets from the new saved .npy files
-targets_1_axial = np.load('targets_axial.npy')
-targets_1_hoop = np.load('targets_hoop.npy')
+# Load targets and scalers
+try:
+    targets_1_axial = np.load('targets_axial.npy')
+    targets_1_hoop = np.load('targets_hoop.npy')
+    scaler_axial = joblib.load('scaler_axial.pkl')
+    scaler_hoop = joblib.load('scaler_hoop.pkl')
+except FileNotFoundError as e:
+    st.error(f"Error loading data or scaler files: {e}")
+    st.stop()
 
-# Load scalers and models
-scaler_axial = joblib.load('scaler_axial.pkl')
-scaler_hoop = joblib.load('scaler_hoop.pkl')
-    
-# Load your models
-cato_rupture = pickle.load(open('CATO_Rupture.pkl', 'rb'))
-cato_strain = pickle.load(open('CATO_Strain.pkl', 'rb'))
-cato_strength = pickle.load(open('CATO_Strength.pkl', 'rb'))
-lstm_model_axial = load_model('axial_lstm_model.h5')
-lstm_model_hoop = load_model('hoop_lstm_model.h5')
+# Load models
+try:
+    cato_rupture = pickle.load(open('CATO_Rupture.pkl', 'rb'))
+    cato_strain = pickle.load(open('CATO_Strain.pkl', 'rb'))
+    cato_strength = pickle.load(open('CATO_Strength.pkl', 'rb'))
+    lstm_model_axial = load_model('axial_lstm_model.h5')
+    lstm_model_hoop = load_model('hoop_lstm_model.h5')
+except FileNotFoundError as e:
+    st.error(f"Error loading model files: {e}")
+    st.stop()
 
 # Initialize session state
 if 'predictions' not in st.session_state:
@@ -187,12 +156,8 @@ with st.form("input_form"):
     st.subheader("Stress-Strain Model")
     stress_strain_model = st.selectbox("Stress-Strain Model", ["CATO-LSTMO", "CATO-MZW"], index=0, key="stress_strain_model_selectbox")
 
-    st.subheader("Loading Parameters")
-    load_unit = st.selectbox('Select Load Unit', ['kN', 'MPa'], key="load_unit_selectbox")
-    if load_unit == 'kN':
-        applied_load_input = st.number_input('Applied Load (kN)', min_value=0.0, max_value=5000.0, value=2000.0)
-    else:
-        applied_load_input = st.number_input('Applied Stress (MPa)', min_value=0.0, max_value=500.0, value=91.39)
+    st.subheader("Displacement Parameter")
+    max_displacement = st.number_input("Maximum Displacement (mm)", min_value=0.1, value=10.0)
 
     # Conditional logic
     fibre_type = 1 if frp_type == 'GFRP' else 3
@@ -237,8 +202,8 @@ if submit_button:
         
         mask = np.ones(len(stress_values), dtype=bool)
         mask[1:] = np.diff(stress_values) > 0
-        axial_strains = strain_values[mask]
         axial_stresses = stress_values[mask] * 1e6
+        axial_strains = strain_values[mask]
         hoop_stresses = None
         hoop_strains = None
 
@@ -291,10 +256,11 @@ if submit_button:
         'diameter': diameter,
         'height': height,
         'frp_thickness': frp_overall_thickness,
-        'load_unit': load_unit,
-        'applied_load_input': applied_load_input,
+        'max_displacement': max_displacement,
         'rupture_strain': rupture_strain,
-        'confinement_stress': confinement_stress
+        'confinement_stress': confinement_stress,
+        'unconfined_strength': unconfined_strength,
+        'fibre_modulus': fibre_modulus
     }
     st.session_state.stress_strain_model = stress_strain_model
 
@@ -305,7 +271,7 @@ if submit_button:
     st.write(f"Strength Enhancement: {strength_enhancement_ratio:.3f}")
     st.write(f"Strain Enhancement: {strain_enhancement_ratio:.3f}")
 
-# Visualisation Logic
+# Visualization Section
 if st.session_state.predictions:
     preds = st.session_state.predictions
     axial_stresses = preds['axial_stresses']
@@ -315,8 +281,21 @@ if st.session_state.predictions:
     rupture_strain = preds['rupture_strain']
     confinement_stress = preds['confinement_stress']
     stress_strain_model = st.session_state.stress_strain_model
+    unconfined_strength = preds['unconfined_strength']
+    frp_thickness = preds['frp_thickness']
+    fibre_modulus = preds['fibre_modulus']
+    max_displacement = preds['max_displacement']
+    diameter = preds['diameter']
+    height = preds['height']
 
-    # Visualisation Analytical Setup
+    st.subheader("Post-Processing Visualisation")
+    selected_plot = st.selectbox(
+        "Select the plot to display",
+        ["Load-Displacement Curve", "Stress-Strain Curve", "Stress Contours", "Strain Contours", "Displacement Contours"],
+        key="plot_type_selectbox"
+    )
+
+    # Analytical Setup for Load-Displacement and Stress-Strain Curves
     epsilon_frp_ult = rupture_strain if stress_strain_model == 'CATO-MZW' else np.max(hoop_strains) if hoop_strains is not None else 0.0103026467
     stress_threshold = 15e6
     axial_mask = axial_stresses >= stress_threshold
@@ -342,27 +321,24 @@ if st.session_state.predictions:
     mask[1:] = np.diff(experimental_axial_stresses_sorted) > 0
     strain_from_stress = interpolate.CubicSpline(experimental_axial_stresses_sorted[mask], experimental_axial_strains_sorted[mask], extrapolate=True)
 
-    diameter_m = preds['diameter'] / 1000
-    height_m = preds['height'] / 1000
+    diameter_m = diameter / 1000
+    height_m = height / 1000
     radius = diameter_m / 2
-    frp_radius = radius + (preds['frp_thickness'] / 1000)
     area = np.pi * radius**2
     initial_height = height_m
-
-    applied_load_input_Pa = preds['applied_load_input'] * 1e3 if preds['load_unit'] == 'kN' else preds['applied_load_input'] * 1e6 * area
     failure_load_value = max_axial_stress * area / 1000
-    applied_load_input_Pa = min(applied_load_input_Pa, failure_load_value * 1000)
 
-    def load_displacement_curve(current_load_Pa):
+    def load_displacement_curve(max_displacement_m):
         displacement, load, strain, stress = [], [], [], []
         current_displacement, applied_load = 0, 0
-        delta_displacement, max_displacement = 0.00001, 0.1
-        while current_displacement < max_displacement:
+        delta_displacement = 0.00001
+        max_displacement_m = max_displacement_m / 1000  # Convert mm to m
+        while current_displacement < max_displacement_m:
             strain_at_top = current_displacement / initial_height
             stress_at_base = axial_stress_strain_curve(strain_at_top)
             applied_load = stress_at_base * area
-            if stress_at_base >= max_axial_stress or applied_load >= current_load_Pa:
-                applied_load = min(current_load_Pa, max_axial_stress * area)
+            if stress_at_base >= max_axial_stress:
+                applied_load = max_axial_stress * area
                 displacement.append(current_displacement)
                 load.append(applied_load)
                 strain.append(strain_at_top)
@@ -373,169 +349,14 @@ if st.session_state.predictions:
             strain.append(strain_at_top)
             stress.append(stress_at_base)
             current_displacement += delta_displacement
-        load = np.array(load)
-        displacement = np.array(displacement)
-        strain = np.array(strain)
-        stress = np.array(stress)
-        indices = np.argsort(load)
-        mask = np.ones(len(load[indices]), dtype=bool)
-        mask[1:] = np.diff(load[indices]) > 0
-        return (displacement[indices][mask], load[indices][mask], strain[indices][mask], stress[indices][mask])
+        return np.array(displacement), np.array(load), np.array(strain), np.array(stress)
 
-    # Cache mesh generation to avoid recomputation
-    @st.cache_data
-    def generate_mesh(diameter_m, height_m, frp_thickness, n_theta=30, n_z=30):
-        radius = diameter_m / 2
-        frp_radius = radius + (frp_thickness / 1000)
-        
-        theta = np.linspace(0, 2 * np.pi, n_theta, endpoint=False)
-        z_levels = np.linspace(0, height_m, n_z)
-        
-        # Concrete vertices
-        vertices = np.array([[radius * np.cos(t), radius * np.sin(t), z_val] for z_val in z_levels for t in theta])
-        vertices = np.vstack([[0, 0, 0], vertices, [0, 0, height_m]])
-        
-        # Concrete faces
-        full_faces = []
-        for i in range(n_z - 1):
-            for j in range(n_theta):
-                v0 = i * n_theta + j
-                v1 = i * n_theta + (j + 1) % n_theta
-                v2 = (i + 1) * n_theta + j
-                v3 = (i + 1) * n_theta + (j + 1) % n_theta
-                full_faces.append([v0 + 1, v1 + 1, v2 + 1])
-                full_faces.append([v1 + 1, v3 + 1, v2 + 1])
-        full_faces = np.array(full_faces)
-        for j in range(n_theta):
-            full_faces = np.vstack([full_faces, [0, 1 + j, 1 + (j + 1) % n_theta]])
-        top_base_idx = 1 + (n_z - 1) * n_theta
-        for j in range(n_theta):
-            full_faces = np.vstack([full_faces, [len(vertices) - 1, top_base_idx + (j + 1) % n_theta, top_base_idx + j]])
-        
-        # FRP vertices and faces
-        frp_vertices = np.array([[frp_radius * np.cos(t), frp_radius * np.sin(t), z_val] for z_val in z_levels for t in theta])
-        full_frp_faces = []
-        for i in range(n_z - 1):
-            for j in range(n_theta):
-                v0 = i * n_theta + j
-                v1 = i * n_theta + (j + 1) % n_theta
-                v2 = (i + 1) * n_theta + j
-                v3 = (i + 1) * n_theta + (j + 1) % n_theta
-                full_frp_faces.append([v0, v1, v2])
-                full_frp_faces.append([v1, v3, v2])
-        full_frp_faces = np.array(full_frp_faces)
-        
-        return vertices, full_faces, frp_vertices, full_frp_faces
-
-    # Visualisation
-    st.subheader("Post-Processing Visualisation")
-    selected_plot = st.selectbox(
-        "Select the plot to display",
-        ["Load-Displacement Curve", "Stress-Strain Curve", "Stress Contours", "Strain Contours",
-         "Load Contours", "Displacement Contours"],
-        key="plot_type_selectbox"
-    )
-
-    current_load_Pa = applied_load_input_Pa
-    displacement, load, strain, stress = load_displacement_curve(current_load_Pa)
-    load_displacement_curve_interp = interpolate.CubicSpline(load, displacement, extrapolate=True)
-
-    load_kN = load / 1000
-    stress_MPa = stress / 1e6
-    displacement_mm = displacement * 1000
-    strain_percent = strain * 100
-    hoop_strain_from_axial = hoop_strain_curve(stress) if stress_strain_model == 'CATO-LSTMO' else None
-    hoop_strain_percent = hoop_strain_from_axial * 100 if stress_strain_model == 'CATO-LSTMO' else None
-
-    # Generate 3D field data
-    n_theta, n_z = 30, 30  # Reduced resolution
-    theta = np.linspace(0, 2 * np.pi, n_theta)
-    z = np.linspace(0, height_m, n_z)
-    theta, z = np.meshgrid(theta, z)
-    x = radius * np.cos(theta)
-    y = radius * np.sin(theta)
-    poissons_ratio = 0.2
-
-    applied_stress = applied_load_input_Pa / area
-    axial_stress_3d = applied_stress * (1 - z / height_m)
-    axial_stress_3d = np.broadcast_to(axial_stress_3d[:, 0][:, np.newaxis], z.shape)
-    radial_stress_3d = poissons_ratio * axial_stress_3d * (1 - np.sqrt(x**2 + y**2) / radius)
-    total_stress_3d = axial_stress_3d + radial_stress_3d
-    strain_3d = strain_from_stress(total_stress_3d)
-    strain_3d_percent = strain_3d * 100
-
-    dz = z[1, 0] - z[0, 0]
-    displacement_3d = np.cumsum(strain_3d * dz, axis=0)
-    max_displacement_from_curve = load_displacement_curve_interp(applied_load_input_Pa)
-    displacement_3d = displacement_3d * (max_displacement_from_curve / np.max(displacement_3d))
-    displacement_3d_mm = displacement_3d * 1000
-
-    load_3d = total_stress_3d * area
-    load_3d_kN = load_3d / 1000
-
-    # Generate mesh
-    vertices, full_faces, frp_vertices, full_frp_faces = generate_mesh(diameter_m, height_m, preds['frp_thickness'], n_theta, n_z)
-
-    # Compute vertex scalars
-    total_stress_vertices = np.array([total_stress_3d[0, 0]] + [total_stress_3d[i, j] for i in range(n_z) for j in range(n_theta)] + [total_stress_3d[-1, 0]]) / 1e6
-    strain_vertices = np.array([strain_3d_percent[0, 0]] + [strain_3d_percent[i, j] for i in range(n_z) for j in range(n_theta)] + [strain_3d_percent[-1, 0]])
-    load_vertices = np.array([load_3d_kN[0, 0]] + [load_3d_kN[i, j] for i in range(n_z) for j in range(n_theta)] + [load_3d_kN[-1, 0]])
-    displacement_vertices = np.array([displacement_3d_mm[0, 0]] + [displacement_3d_mm[i, j] for i in range(n_z) for j in range(n_theta)] + [displacement_3d_mm[-1, 0]])
-
-    # Deformed vertices for displacement contours
-    vertices_deformed = vertices.copy()
-    vertices_deformed[0, 2] += displacement_vertices[0] / 1000
-    for i in range(n_z):
-        for j in range(n_theta):
-            vertex_idx = 1 + i * n_theta + j
-            vertices_deformed[vertex_idx, 2] += displacement_vertices[vertex_idx] / 1000
-    vertices_deformed[-1, 2] += displacement_vertices[-1] / 1000
-
-    frp_vertices_deformed = frp_vertices.copy()
-    for i in range(n_z):
-        for j in range(n_theta):
-            vertex_idx = i * n_theta + j
-            frp_vertices_deformed[vertex_idx, 2] += displacement_vertices[1 + i * n_theta + j] / 1000
-
-    aspect_ratio = {'x': 1, 'y': 1, 'z': height_m / diameter_m}
-
-    # Define plot parameters for each contour type
-    plot_params = {
-        "Stress Contours": {
-            "scalar": compute_face_scalars(total_stress_vertices, full_faces),
-            "title": "Stress Contours",
-            "colorbar_title": "Stress (MPa)",
-            "vertices": vertices,
-            "min_val": np.min(total_stress_vertices),
-            "max_val": np.max(total_stress_vertices)
-        },
-        "Strain Contours": {
-            "scalar": compute_face_scalars(strain_vertices, full_faces),
-            "title": "Strain Contours",
-            "colorbar_title": "Strain (%)",
-            "vertices": vertices,
-            "min_val": np.min(strain_vertices),
-            "max_val": np.max(strain_vertices)
-        },
-        "Load Contours": {
-            "scalar": compute_face_scalars(load_vertices, full_faces),
-            "title": "Internal Load Distribution Contours",
-            "colorbar_title": "Internal Load Distribution (kN)",
-            "vertices": vertices,
-            "min_val": np.min(load_vertices),
-            "max_val": np.max(load_vertices)
-        },
-        "Displacement Contours": {
-            "scalar": compute_face_scalars(displacement_vertices, full_faces),
-            "title": "Displacement Contours",
-            "colorbar_title": "Displacement (mm)",
-            "vertices": vertices_deformed,
-            "min_val": np.min(displacement_vertices),
-            "max_val": np.max(displacement_vertices)
-        }
-    }
-
+    # Visualization Logic
     if selected_plot == "Load-Displacement Curve":
+        displacement, load, _, _ = load_displacement_curve(max_displacement)
+        load_kN = load / 1000
+        displacement_mm = displacement * 1000
+
         fig, ax = plt.subplots()
         ax.plot(displacement_mm, load_kN, 'b-')
         ax.set_xlabel("Displacement (mm)")
@@ -596,62 +417,273 @@ if st.session_state.predictions:
         )
         plt.close(fig)
 
-    elif selected_plot in ["Stress Contours", "Strain Contours", "Load Contours", "Displacement Contours"]:
-        params = plot_params[selected_plot]
-        
-        # Create figure and plot concrete mesh
-        fig = plot_abaqus_style(
-            vertices=params["vertices"],
-            faces=full_faces,
-            scalar_per_face=params["scalar"],
-            title=params["title"],
-            colorbar_title=params["colorbar_title"],
-            min_val=params["min_val"],
-            max_val=params["max_val"],
-            aspect_ratio=aspect_ratio,
-            num_bands=10  # Adjustable for more/less bands
-        )
+    else:  # 3D Contours (Stress, Strain, Displacement)
+        # Load pretrained models and scalers
+        try:
+            stress_model = pickle.load(open('vis_stress_model.pkl', 'rb'))
+            strain_model = pickle.load(open('vis_strain_model.pkl', 'rb'))
+            disp_model = pickle.load(open('vis_disp_model.pkl', 'rb'))
+            stress_scaler = joblib.load('vis_stress_scaler.pkl')
+            strain_scaler = joblib.load('vis_strain_scaler.pkl')
+            disp_scaler = joblib.load('vis_disp_scaler.pkl')
+        except FileNotFoundError as e:
+            st.error(f"Error loading visualization model or scaler files: {e}")
+            st.stop()
 
-        # Add FRP layer
-        if len(full_frp_faces) > 0:
-            vertices_for_frp = frp_vertices_deformed if selected_plot == "Displacement Contours" else frp_vertices
-            fig.add_trace(go.Mesh3d(
-                x=vertices_for_frp[:, 0], y=vertices_for_frp[:, 1], z=vertices_for_frp[:, 2],
-                i=full_frp_faces[:, 0], j=full_frp_faces[:, 1], k=full_frp_faces[:, 2],
-                color='gray', opacity=0.3,
-                lighting=dict(ambient=1.0, diffuse=0.1, specular=0.0, roughness=1.0),
+        # Load mesh
+        try:
+            nodes_path = 'frp_mesh_with_manual_caps_nodes.csv'
+            faces_path = 'frp_mesh_with_manual_caps_faces.csv'
+            xyz = pd.read_csv(nodes_path)[["X", "Y", "Z"]].values
+            faces = pd.read_csv(faces_path)
+            i, j, k = faces["i"].values, faces["j"].values, faces["k"].values
+            node_count = len(xyz)
+        except FileNotFoundError as e:
+            st.error(f"Error loading mesh files: {e}")
+            st.stop()
+
+        # Use predicted stress-strain data
+        stress_interp = interp1d(np.linspace(0, 1, len(axial_stresses) if len(axial_stresses) > 1 else 2), 
+                                axial_stresses / 1e6 if len(axial_stresses) > 1 else np.array([0, np.max(axial_stresses) / 1e6]))
+        strain_interp = interp1d(axial_stresses / 1e6 if len(axial_stresses) > 1 else np.array([0, np.max(axial_stresses) / 1e6]), 
+                                axial_strains if len(axial_strains) > 1 else np.array([0, np.max(axial_strains)]), 
+                                bounds_error=False, fill_value="extrapolate")
+
+        # Abaqus-like colorscale function
+        def create_abaqus_colorscale(values, num_bands=10):
+            abaqus_colors = [(0, 0, 255), (0, 255, 255), (0, 255, 0), (255, 255, 0), (255, 165, 0), (255, 0, 0)]
+            min_val, max_val = np.min(values), np.max(values)
+            if max_val == min_val:
+                max_val = min_val + 1e-6  # Avoid division by zero
+                colorscale = [[0, 'rgb(0,0,255)'], [1, 'rgb(0,0,255)']]  # Single color for frame 0
+                ticks = [min_val]
+                ticktext = [f"{min_val:.2e}"]
+            else:
+                colorscale = [[i/(len(abaqus_colors)-1), f'rgb{c}'] for i, c in enumerate(abaqus_colors)]
+                ticks = np.linspace(min_val, max_val, num_bands)
+                ticktext = [f"{v:.2e}" for v in ticks]
+            return colorscale, ticks, ticktext, min_val, max_val
+
+        # Map selected plot to visualization mode
+        vis_mode_map = {
+            "Stress Contours": "Stress (MPa)",
+            "Strain Contours": "Strain (%)",
+            "Displacement Contours": "Displacement (mm)"
+        }
+        vis_mode = vis_mode_map[selected_plot]
+
+        # Frame selection
+        frame_idx = st.slider("Select Frame", 0, 20, 0, key="frame_idx_slider")
+
+        # Identify bottom and top nodes
+        bottom_center_idx = node_count - 2
+        top_center_idx = node_count - 1
+        y_vals = xyz[:, 1]
+        tol = 1e-2
+        bottom_ring = np.where(np.abs(y_vals - y_vals.min()) < tol)[0]
+        top_ring = np.where(np.abs(y_vals - y_vals.max()) < tol)[0]
+
+        # Identify top surface nodes (top cap)
+        top_surface_nodes = set()
+        for face in zip(i, j, k):
+            face_nodes = [face[0], face[1], face[2]]
+            # Check if all nodes in the face are at the maximum y-value (top cap)
+            if all(np.abs(y_vals[node] - y_vals.max()) < tol for node in face_nodes):
+                top_surface_nodes.update(face_nodes)
+        top_surface_nodes = np.array(list(top_surface_nodes))
+
+        # Predict all frame values with explicit zero at frame 0 and top surface matching top ring for displacement
+        @st.cache_data
+        def predict_all_frames(_unconfined_strength, _frp_thickness, _fibre_modulus, _max_displacement):
+            all_scaled = []
+            for idx in range(21):
+                if idx == 0:
+                    # Explicitly set all values to zero for frame 0
+                    scaled = np.zeros(node_count)
+                else:
+                    df_feat = pd.DataFrame({
+                        "Unconfined_Strength (MPa)": [unconfined_strength] * node_count,
+                        "FRP_Thickness (mm)": [frp_thickness] * node_count,
+                        "Fibre_Modulus (MPa)": [fibre_modulus] * node_count,
+                        "Frame_Index": [idx] * node_count,
+                        "Node_Label": list(range(node_count))
+                    })
+
+                    X_stress = stress_scaler.transform(df_feat)
+                    X_strain = strain_scaler.transform(df_feat)
+                    X_disp = disp_scaler.transform(df_feat)
+
+                    s_vals = stress_model.predict(X_stress)
+                    strain_vals = strain_model.predict(X_strain)
+                    u_vals = disp_model.predict(X_disp)
+
+                    for arr in [s_vals, strain_vals, u_vals]:
+                        if arr[bottom_center_idx] == 0:
+                            arr[bottom_center_idx] = np.mean(arr[bottom_ring])
+                        if arr[top_center_idx] == 0:
+                            arr[top_center_idx] = np.mean(arr[top_ring])
+
+                    if vis_mode == "Stress (MPa)":
+                        norm = s_vals / (np.max(np.abs(s_vals)) or 1.0)
+                        scaled = norm * stress_interp(idx / 20)
+                    elif vis_mode == "Strain (%)":
+                        stress_scaled = s_vals / (np.max(np.abs(s_vals)) or 1.0) * stress_interp(idx / 20)
+                        scaled = strain_interp(stress_scaled) * 100
+                    else:  # Displacement (mm)
+                        norm = u_vals / (np.max(np.abs(u_vals)) or 1.0)
+                        scaled = norm * max_displacement
+                        # Set top surface nodes to mean of top ring nodes
+                        top_ring_mean = np.mean(scaled[top_ring])
+                        scaled[top_surface_nodes] = top_ring_mean
+
+                all_scaled.append(scaled)
+            return np.array(all_scaled)
+
+        frame_values = predict_all_frames(unconfined_strength, frp_thickness, fibre_modulus, max_displacement)
+
+        # Generate wireframe
+        def generate_edges(i, j, k):
+            edge_set = set()
+            for tri in zip(i, j, k):
+                for a, b in [(0, 1), (1, 2), (2, 0)]:
+                    edge_set.add(tuple(sorted((tri[a], tri[b]))))
+            return list(edge_set)
+
+        edges = generate_edges(i, j, k)
+        x_lines, y_lines, z_lines = [], [], []
+        for e in edges:
+            p1, p2 = xyz[e[0]], xyz[e[1]]
+            x_lines += [p1[0], p2[0], None]
+            y_lines += [p1[1], p2[1], None]
+            z_lines += [p1[2], p2[2], None]
+
+        # Create Plotly frames
+        frames = []
+        for idx, val in enumerate(frame_values):
+            colorscale, tick_vals, tick_text, min_v, max_v = create_abaqus_colorscale(val)
+            mesh = go.Mesh3d(
+                x=xyz[:, 0], y=xyz[:, 1], z=xyz[:, 2],
+                i=i, j=j, k=k,
+                intensity=val,
+                intensitymode="vertex",
+                colorscale=colorscale,
+                cmin=min_v,
+                cmax=max_v,
+                flatshading=True,
+                lighting=dict(ambient=0.9, diffuse=0.1, specular=0.0),
+                colorbar=dict(
+                    title=vis_mode,
+                    tickvals=tick_vals,
+                    ticktext=tick_text,
+                    len=0.75,
+                    x=1.05,
+                    thickness=20
+                ),
+                showscale=True,
+                opacity=1.0
+            )
+            wire = go.Scatter3d(
+                x=x_lines, y=y_lines, z=z_lines,
+                mode="lines",
+                line=dict(color="black", width=1),
                 showlegend=False
+            )
+            frames.append(go.Frame(
+                data=[mesh, wire],
+                name=str(idx),
+                layout=go.Layout(title=f"{vis_mode} – Frame {idx}")
             ))
 
-        # Add FRP wireframe
-        frp_edges = set(tuple(sorted([face[i], face[(i + 1) % 3]])) for face in full_frp_faces for i in range(3))
-        frp_wireframe_x, frp_wireframe_y, frp_wireframe_z = [], [], []
-        vertices_for_frp = frp_vertices_deformed if selected_plot == "Displacement Contours" else frp_vertices
-        for v0, v1 in frp_edges:
-            frp_wireframe_x.extend([vertices_for_frp[v0, 0], vertices_for_frp[v1, 0], None])
-            frp_wireframe_y.extend([vertices_for_frp[v0, 1], vertices_for_frp[v1, 1], None])
-            frp_wireframe_z.extend([vertices_for_frp[v0, 2], vertices_for_frp[v1, 2], None])
-        fig.add_trace(go.Scatter3d(
-            x=frp_wireframe_x, y=frp_wireframe_y, z=frp_wireframe_z,
-            mode='lines', line=dict(color='black', width=1), opacity=0.5, showlegend=False
-        ))
+        # Create Plotly figure with animation
+        colorscale, tick_vals, tick_text, min_v, max_v = create_abaqus_colorscale(frame_values[frame_idx])
+        fig = go.Figure(
+            data=[
+                go.Mesh3d(
+                    x=xyz[:, 0], y=xyz[:, 1], z=xyz[:, 2],
+                    i=i, j=j, k=k,
+                    intensity=frame_values[frame_idx],
+                    intensitymode="vertex",
+                    colorscale=colorscale,
+                    cmin=min_v,
+                    cmax=max_v,
+                    flatshading=True,
+                    lighting=dict(ambient=0.9, diffuse=0.1, specular=0.0),
+                    colorbar=dict(
+                        title=vis_mode,
+                        tickvals=tick_vals,
+                        ticktext=tick_text,
+                        len=0.75,
+                        x=1.05,
+                        thickness=20
+                    ),
+                    showscale=True,
+                    opacity=1.0
+                ),
+                go.Scatter3d(
+                    x=x_lines, y=y_lines, z=z_lines,
+                    mode="lines",
+                    line=dict(color="black", width=1),
+                    showlegend=False
+                )
+            ],
+            frames=frames,
+            layout=go.Layout(
+                title=f"{vis_mode} – Frame {frame_idx}",
+                scene=dict(
+                    xaxis_title='X',
+                    yaxis_title='Y (Height)',
+                    zaxis_title='Z',
+                    aspectmode='data'
+                ),
+                scene_camera=dict(up=dict(x=0, y=1, z=0)),
+                width=1000,
+                height=800,
+                sliders=[{
+                    "steps": [
+                        dict(
+                            method="animate",
+                            label=str(k),
+                            args=[[str(k)], {"mode": "immediate", "frame": {"duration": 300, "redraw": True}, "transition": {"duration": 100}}]
+                        ) for k in range(len(frames))
+                    ],
+                    "x": 0.1,
+                    "xanchor": "left",
+                    "y": 0,
+                    "yanchor": "top"
+                }],
+                updatemenus=[{
+                    "type": "buttons",
+                    "buttons": [
+                        {"label": "Play", "method": "animate", "args": [None, {"frame": {"duration": 300, "redraw": True}, "fromcurrent": True}]},
+                        {"label": "Pause", "method": "animate", "args": [[None], {"mode": "immediate", "frame": {"duration": 0}, "transition": {"duration": 0}}]}
+                    ],
+                    "direction": "left",
+                    "x": 0.1,
+                    "xanchor": "left",
+                    "y": 0,
+                    "yanchor": "top"
+                }]
+            )
+        )
 
-        st.plotly_chart(fig)
+        st.plotly_chart(fig, use_container_width=True)
 
-        # Download button
+        # Download button for current frame
         buf = BytesIO()
         fig.write_image(buf, format="png", engine="kaleido")
         buf.seek(0)
         st.download_button(
-            label=f"Download {params['title']}",
+            label=f"Download {vis_mode} Visualization (Frame {frame_idx})",
             data=buf,
-            file_name=f"{params['title'].replace(' ', '_').lower()}.png",
+            file_name=f"{vis_mode.replace(' ', '_').lower()}_frame_{frame_idx}.png",
             mime="image/png"
         )
 
-    st.write(f"Maximum axial stress (failure criteria): {max_axial_stress / 1e6:.2f} MPa")
-    st.write(f"Calculated failure load: {failure_load_value:.2f} kN")
-    st.write(f"Current applied load: {current_load_Pa / 1000:.2f} kN")
+    # Performance Summary
+    st.subheader("Performance Summary")
+    st.write(f"Maximum Axial Stress (failure criteria): {max_axial_stress / 1e6:.2f} MPa")
+    st.write(f"Calculated Failure Load: {failure_load_value:.2f} kN")
+    st.write(f"Maximum Displacement: {max_displacement:.2f} mm")
 
 # Footer
 st.markdown("""
@@ -661,5 +693,5 @@ st.markdown("""
     3. Two types of FRP were considered: GFRP and CFRP.
     4. CATO-MZW: Hybridised Categorical Boosting with modified Zhou and Wu model (axial stress-strain only).
     5. CATO-LSTMO: Hybridised Categorical Boosting with Long-Short Term Memory Optimisation (axial and hoop stress-strains).
-    6. Visualizations are generated using ML predictions and analytical post-processing, styled to resemble Abaqus FEA outputs for familiarity.
+    6. Visualizations are generated using ML predictions, styled to resemble Abaqus FEA outputs for familiarity.
 """)
