@@ -12,7 +12,7 @@ import plotly.graph_objects as go
 from io import BytesIO
 import os
 
-# Optimized plot_abaqus_style function (unused but kept for reference)
+# Optimized plot_abaqus_style function
 def plot_abaqus_style(vertices, faces, scalar_per_face, title, colorbar_title, min_val=None, max_val=None, aspect_ratio=None, num_bands=10):
     if min_val is None:
         min_val = np.min(scalar_per_face)
@@ -493,8 +493,7 @@ if st.session_state.predictions:
         top_surface_nodes = np.array(list(top_surface_nodes))
 
         # Predict all frame values with explicit zero at frame 0 and top surface matching top ring for displacement
-        @st.cache_data
-        def predict_all_frames(_unconfined_strength, _frp_thickness, _fibre_modulus, _max_displacement):
+        def predict_all_frames():
             all_scaled = []
             for idx in range(21):
                 if idx == 0:
@@ -539,7 +538,7 @@ if st.session_state.predictions:
                 all_scaled.append(scaled)
             return np.array(all_scaled)
 
-        frame_values = predict_all_frames(unconfined_strength, frp_thickness, fibre_modulus, max_displacement)
+        frame_values = predict_all_frames()
 
         # Generate wireframe
         def generate_edges(i, j, k):
@@ -695,3 +694,23 @@ st.markdown("""
     5. CATO-LSTMO: Hybridised Categorical Boosting with Long-Short Term Memory Optimisation (axial and hoop stress-strains).
     6. Visualizations are generated using ML predictions, styled to resemble Abaqus FEA outputs for familiarity.
 """)
+footer = """
+<style>
+.footer {
+    position: fixed;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    background-color: #f1f1f1;
+    text-align: center;
+    padding: 10px;
+    font-size: 12px;
+    color: #6c757d;
+}
+</style>
+<div class="footer">
+    <p>© 2025 My Streamlit App. All rights reserved. | Temitope E. Dada, Guobin Gong, Jun Xia, Luigi Di Sarno | For Queries: <a href="mailto: T.Dada19@student.xjtlu.edu.cn"> T.Dada19@student.xjtlu.edu.cn</a></p>
+</div>
+"""
+
+st.markdown(footer, unsafe_allow_html=True)
