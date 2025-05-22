@@ -123,7 +123,7 @@ if 'stress_strain_model' not in st.session_state:
     st.session_state.stress_strain_model = None
 
 # Title
-st.title("FRCRAC Predictor and Visualisation")
+st.title("FRCRAC Predictor and Visualiser")
 
 # Input Form
 with st.form("input_form"):
