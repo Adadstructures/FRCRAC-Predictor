@@ -672,7 +672,7 @@ if st.session_state.predictions:
         fig.write_image(buf, format="png", engine="kaleido")
         buf.seek(0)
         st.download_button(
-            label=f"Download {vis_mode} Visualization (Frame {frame_idx})",
+            label=f"Download {vis_mode} Visualisation (Frame {frame_idx})",
             data=buf,
             file_name=f"{vis_mode.replace(' ', '_').lower()}_frame_{frame_idx}.png",
             mime="image/png"
@@ -692,7 +692,7 @@ st.markdown("""
     3. Two types of FRP were considered: GFRP and CFRP.
     4. CATO-MZW: Hybridised Categorical Boosting with modified Zhou and Wu model (axial stress-strain only).
     5. CATO-LSTMO: Hybridised Categorical Boosting with Long-Short Term Memory Optimisation (axial and hoop stress-strains).
-    6. Visualizations are generated using ML predictions, styled to resemble Abaqus FEA outputs for familiarity.
+    6. Visualisations are generated using ML predictions, styled to resemble Abaqus FEA outputs for familiarity.
 """)
 footer = """
 <style>
