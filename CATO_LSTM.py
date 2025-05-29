@@ -91,7 +91,7 @@ except Exception as e:
 # Load machine learning models
 try:
     cato_rupture = pickle.load(open('CATO_Rupture.pkl', 'rb'))
-    cato_strain = pickle.load(open('CATO_S.pkl', 'rb'))
+    cato_strain = pickle.load(open('CATO_Strain.pkl', 'rb'))
     cato_strength = pickle.load(open('CATO_Strength.pkl', 'rb'))
     lstm_model_axial = load_model('axial_lstm_model.h5')
     lstm_model_hoop = load_model('hoop_lstm_model.h5')
