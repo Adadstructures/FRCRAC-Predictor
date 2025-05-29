@@ -23,7 +23,7 @@ st.markdown("""
     }
     /* Ensure sliders are full-width */
     .stSlider > div > div > div {
-        width: 100% !important;
+        width: 100%!important;
     }
     /* Style buttons for full-width and spacing */
     .stButton > button {
@@ -32,8 +32,8 @@ st.markdown("""
     }
     /* Ensure Plotly graphs are responsive */
     .plotly-graph-div {
-        width: 100% !important;
-        height: auto !important;
+        width: 100%!important;
+        height: auto!important;
     }
     /* Responsive font sizes */
     .stMarkdown, .stText, .stSubheader {
@@ -70,8 +70,8 @@ def create_abaqus_plot(vertices, faces, scalar_per_face, title, colorbar_title, 
     Generate a 3D mesh plot styled like Abaqus FEA output.
     
     Args:
-        vertices (np.ndarray): Vertex coordinates (N, 3)
-        faces (np.ndarray): Face indices (M, 3)
+        vertices (np.ndarray): Vertex coordinates [N, 3]
+        faces (np.ndarray): Face indices [M, 3]
         scalar_per_face (np.ndarray): Scalar values per face
         title (str): Plot title
         colorbar_title (str): Colorbar label
@@ -82,28 +82,24 @@ def create_abaqus_plot(vertices, faces, scalar_per_face, title, colorbar_title, 
     Returns:
         go.Figure: Plotly figure object
     """
-    # Set min/max if not provided
     min_val = np.min(scalar_per_face) if min_val is None else min_val
     max_val = np.max(scalar_per_face) if max_val is None else max_val
     if max_val == min_val:
-        max_val = min_val + 1e-10  # Avoid division by zero
+        max_val = min_val + 1e-10
 
-    # Normalize scalars for coloring
-    normalized_scalars = np.clip((scalar_per_face - min_val) / (max_val - min_val), 0, 1)
+    normalized_scalars = np.clip([(x - min_val) / (max_val - min_val) for x in scalar_per_face], 0, 1)
 
-    # Define Abaqus-like color scale
     abaqus_colors = [
         (0, 0, 255), (0, 255, 255), (0, 255, 0), (255, 255, 0), (255, 165, 0), (255, 0, 0)
     ]
-    colorscale = [[i / (len(abaqus_colors) - 1), f'rgb{c}'] for i, c in enumerate(abaqus_colors)]
+    colorscale = [[i / (len(abaqus_colors) - 1), f'rgb({c[0]},{c[1]},{c[2]})'] for i, c in enumerate(abaqus_colors)]
     colorscale[-1][0] = 1.0
 
-    # Assign colors based on bands
     band_edges = np.linspace(0, 1, num_bands, endpoint=True)
-    color_indices = np.clip(np.digitize(normalized_scalars, band_edges, right=True), 0, num_bands - 1)
-    face_colors = [colorscale[min(idx, num_bands - 1)][1] for idx in color_indices]
+    color_indices = np.digitize(normalized_scalars, band_edges, right=True)
+    color_indices = np.clip(color_indices, 0, num_bands - 1)
+    face_colors = [colorscale[idx][1] for idx in color_indices]
 
-    # Set colorbar ticks
     tick_vals = np.linspace(min_val, max_val, num_bands)
     def format_sci_notation(val):
         if abs(val) < 1e-10:
@@ -115,38 +111,64 @@ def create_abaqus_plot(vertices, faces, scalar_per_face, title, colorbar_title, 
         return f"{coeff}e{sign}{exp_str}"
     tick_text = [format_sci_notation(v) for v in tick_vals]
 
-    # Create 3D mesh
     fig = go.Figure()
     fig.add_trace(go.Mesh3d(
-        x=vertices[:, 0], y=vertices[:, 1], z=vertices[:, 2],
-        i=faces[:, 0], j=faces[:, 1], k=faces[:, 2],
-        facecolor=face_colors, intensity=scalar_per_face, colorscale=colorscale,
-        showscale=True, flatshading=True, opacity=1.0, hoverinfo='skip',
-        lighting=dict(ambient=1.0, diffuse=0.1, specular=0.0, roughness=1.0),
-        colorbar=dict(title=colorbar_title, tickvals=tick_vals, ticktext=tick_text, len=0.75, x=1.05)
+        x=vertices[:,0], y=vertices[:,1], z=vertices[:,2],
+        i=faces[:,0], j=faces[:,1], k=faces[:,2],
+        facecolor=face_colors,
+        intensity=scalar_per_face,
+        colorscale=colorscale,
+        showscale=True,
+        flatshading=True,
+        opacity=0.75,
+        hoverinfo='skip',
+        lighting=dict(
+            ambient=1.0,
+            diffuse=0.1,
+            specular=0.0,
+            roughness=1.0
+        ),
+        colorbar=dict(
+            title=colorbar_title,
+            tickvals=tick_vals,
+            ticktext=tick_text,
+            len=0.75,
+            x=1.05
+        )
     ))
 
-    # Add wireframe
-    edges = set(tuple(sorted([face[i], face[(i + 1) % 3]])) for face in faces for i in range(3))
+    edges = set(tuple(sorted((face[i], face[(i + 1) % 3]))) for face in faces for i in range(3))
     wireframe_x, wireframe_y, wireframe_z = [], [], []
     for v0, v1 in edges:
-        wireframe_x.extend([vertices[v0, 0], vertices[v1, 0], None])
-        wireframe_y.extend([vertices[v0, 1], vertices[v1, 1], None])
-        wireframe_z.extend([vertices[v0, 2], vertices[v1, 2], None])
+        wireframe_x.extend([vertices[v0][0], vertices[v1][0], None])
+        wireframe_y.extend([vertices[v0][1], vertices[v1][1], None])
+        wireframe_z.extend([vertices[v0][2], vertices[v1][2], None])
     
     fig.add_trace(go.Scatter3d(
-        x=wireframe_x, y=wireframe_y, z=wireframe_z,
-        mode='lines', line=dict(color='black', width=2), showlegend=False, hoverinfo='skip'
+        x=wireframe_x,
+        y=wireframe_y,
+        z=wireframe_z,
+        mode='lines',
+        line=dict(
+            color='black',
+            width=2
+        ),
+        showlegend=False,
+        hoverinfo='skip'
     ))
 
-    # Configure layout
     fig.update_layout(
-        title=dict(text=title, font=dict(size=16)),
+        title=dict(
+            text=title,
+            font=dict(size=16)
+        ),
         scene=dict(
-            xaxis_title="X", yaxis_title="Y", zaxis_title="Z",
+            xaxis_title="X",
+            yaxis_title="Y",
+            zaxis_title="Z",
             aspectmode="data"
         ),
-        margin=dict(l=0, r=0, t=50, b=0)
+        margin=dict(l=0,r=0,t=50,b=0)
     )
     return fig
 
@@ -574,11 +596,26 @@ if st.session_state.predictions:
                  f"Y={xyz_scaled[:,1].min():.2f}/{xyz_scaled[:,1].max():.2f}, "
                  f"Z={xyz_scaled[:,2].min():.2f}/{xyz_scaled[:,2].max():.2f}")
 
-        # Define interpolation for stress and strain
-        num_stress_points = len(axial_stresses) if len(axial_stresses) > 1 else 2
-        stress_values = axial_stresses / 1e6 if len(axial_stresses) > 1 else np.array([0, np.max(axial_stresses) / 1e6])
-        strain_values = axial_strains if len(axial_strains) > 1 else np.array([0, np.max(axial_strains)])
-        stress_interp = interp1d(np.linspace(0, 1, num_stress_points), stress_values, bounds_error=False, fill_value="extrapolate")
+        # Define interpolation for stress and strain, mapping to stress-strain curve
+        num_stress_points = len(axial_stresses)
+        if num_stress_points < 2:
+            stress_values = np.array([0, np.max(axial_stresses) / 1e6])
+            strain_values = np.array([0, np.max(axial_strains)])
+            num_stress_points = 2
+        else:
+            stress_values = axial_stresses / 1e6
+            strain_values = axial_strains
+        
+        # Ensure stress and strain arrays are sorted and strictly increasing
+        indices = np.argsort(stress_values)
+        stress_values = stress_values[indices]
+        strain_values = strain_values[indices]
+        mask = np.ones(len(stress_values), dtype=bool)
+        mask[1:] = np.diff(stress_values) > 0
+        stress_values = stress_values[mask]
+        strain_values = strain_values[mask]
+
+        stress_interp = interp1d(np.linspace(0, 1, num_stress_points)[mask], stress_values, bounds_error=False, fill_value="extrapolate")
         strain_interp = interp1d(stress_values, strain_values, bounds_error=False, fill_value="extrapolate")
         st.write(f"Stress interpolation range: {stress_interp(0):.2f} to {stress_interp(1):.2f} MPa")
         st.write(f"Strain interpolation max: {strain_interp(stress_interp(1)):.4f}")
@@ -586,7 +623,7 @@ if st.session_state.predictions:
         # Create Abaqus-like colorscale
         def create_abaqus_colorscale(values, num_bands=10):
             """
-            Create an Abaqus-style colorscale for 3D visualization.
+            Create Abaqus-style colorscale for 3D visualization.
             
             Args:
                 values (np.ndarray): Scalar values to color
@@ -641,7 +678,7 @@ if st.session_state.predictions:
                               bottom_ring, top_ring, top_surface_nodes, stress_interp, strain_interp, 
                               max_displacement):
             """
-            Predict stress, strain, or displacement for selected frames.
+            Predict stress, strain, or displacement for 12 selected frames, mapping to stress-strain curve.
             
             Args:
                 vis_mode (str): Visualization mode (Stress, Strain, Displacement)
@@ -650,7 +687,7 @@ if st.session_state.predictions:
                 stress_scaler, strain_scaler, disp_scaler: Feature scalers
                 unconfined_strength, frp_thickness, fibre_modulus (float): Material properties
                 bottom_center_idx, top_center_idx (int): Boundary node indices
-                bottom_ring, top_ring (np.ndarray): Boundary ring node indices
+                bottom_ring, top_ring (array): Boundary ring node indices
                 top_surface_nodes (np.ndarray): Top surface node indices
                 stress_interp, strain_interp: Interpolation functions
                 max_displacement (float): Maximum displacement (mm)
@@ -659,48 +696,54 @@ if st.session_state.predictions:
                 tuple: Frame values array, frame indices
             """
             all_scaled = []
-            frame_indices = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 21]  # Selected model frames
+            frame_indices = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 21]  # 12 selected frames
             
-            for idx in frame_indices:
+            for frame_num, idx in enumerate(frame_indices):
                 if idx == 0:
-                    scaled = np.zeros(node_count)  # Initial frame (zero load)
+                    scaled = np.zeros(node_count)  # Frame 0: zero values
                 else:
-                    # Prepare feature DataFrame
+                    # Prepare input features for ML models
                     df_feat = pd.DataFrame({
-                        "Unconfined_Strength (MPa)": [unconfined_strength] * node_count,
-                        "FRP_Thickness (mm)": [frp_thickness] * node_count,
-                        "Fibre_Modulus (MPa)": [fibre_modulus] * node_count,
-                        "Frame_Index": [idx] * node_count,
+                        "Unconfined Strength (MPa)": [unconfined_strength] * node_count,
+                        "FRP Thickness (mm)": [frp_thickness] * node_count,
+                        "Fibre Modulus (MPa)": [fibre_modulus] * node_count,
+                        "Frame_indices": [idx] * node_count,
                         "Node_Label": list(range(node_count))
                     })
 
-                    # Scale features
+                    # Scale features for prediction
                     X_stress = stress_scaler.transform(df_feat)
                     X_strain = strain_scaler.transform(df_feat)
                     X_disp = disp_scaler.transform(df_feat)
 
-                    # Predict nodal values
+                    # Predict nodal stress, strain, and displacement distributions
                     s_vals = stress_model.predict(X_stress)
                     strain_vals = strain_model.predict(X_strain)
                     u_vals = disp_model.predict(X_disp)
 
-                    # Correct boundary conditions
+                    # Correct boundary conditions at top and bottom nodes
                     for arr in [s_vals, strain_vals, u_vals]:
                         if arr[bottom_center_idx] == 0:
                             arr[bottom_center_idx] = np.mean(arr[bottom_ring])
                         if arr[top_center_idx] == 0:
                             arr[top_center_idx] = np.mean(arr[top_ring])
 
-                    # Scale predictions based on mode
+                    # Map to stress-strain curve or displacement
+                    norm_factor = np.max(np.abs(s_vals)) or 1.0
                     if vis_mode == "Stress (MPa)":
-                        scaled = s_vals * stress_interp(idx / 21.0) / (np.max(np.abs(s_vals)) or 1.0)
+                        # Scale stress distribution to match stress at idx/21 on stress-strain curve
+                        scaled = s_vals * stress_interp(idx / 21.0) / norm_factor
                     elif vis_mode == "Strain (%)":
-                        stress_scaled = s_vals * stress_interp(idx / 21.0) / (np.max(np.abs(s_vals)) or 1.0)
-                        scaled = strain_interp(stress_scaled) * 100
+                        # Compute strain from scaled stress distribution
+                        stress_scaled = s_vals * stress_interp(idx / 21.0) / norm_factor
+                        scaled = strain_interp(stress_scaled) * 100  # Convert to percentage
                     else:  # Displacement (mm)
-                        scaled = u_vals * max_displacement / (np.max(np.abs(u_vals)) or 1.0)
-                        top_ring_mean = np.mean(scaled[top_ring])
-                        scaled[top_surface_nodes] = top_ring_mean
+                        # Scale displacement proportionally to frame index
+                        disp_scale = max_displacement * (idx / 21.0)
+                        scaled = u_vals * disp_scale / (np.max(np.abs(u_vals)) or 1.0)
+                        # Ensure uniform displacement at top cap
+                        top_mean = np.mean(scaled[top_surface_nodes])
+                        scaled[top_surface_nodes] = top_mean
 
                 all_scaled.append(scaled)
             return np.array(all_scaled), frame_indices
@@ -728,15 +771,15 @@ if st.session_state.predictions:
             max_displacement=max_displacement
         )
         st.write(f"Generated {len(frame_values)} frames, indices: {frame_indices}")
-        st.write(f"Frame 11 (index {frame_indices[-1]}) max value: {np.max(np.abs(frame_values[-1])):.2e} {vis_mode.split(' ')[-1]}")
+        st.write(f"Frame 11 (index {frame_indices[-1]}) max value: {np.max(np.abs(frame_values[-1])):.2e} {vis_mode}")
 
-        # Generate wireframe edges
+        # Generate wireframe edges for visualization
         def generate_edges(i, j, k):
             """
             Generate wireframe edges from triangular faces.
             
             Args:
-                i, j, k (np.ndarray): Face vertex indices
+                i, j, k (array): Face vertex indices
             
             Returns:
                 list: List of edge tuples
@@ -755,25 +798,37 @@ if st.session_state.predictions:
             y_lines.extend([p1[1], p2[1], None])
             z_lines.extend([p1[2], p2[2], None])
 
-        # Select animation frame
+        # Select frame with slider
         frame_idx = st.slider("Select Frame", 0, len(frame_values)-1, 0, key="frame_idx_slider")
 
         # Create animation frames
         frames = []
         for idx, val in enumerate(frame_values):
-            colorscale, tick_vals, tick_text, min_v, max_v = create_abaqus_colorscale(val)
+            colorscale, tick_vals, tick_text = create_abaqus_colorscale(val)[1:4]
             mesh = go.Mesh3d(
-                x=xyz_scaled[:, 0], y=xyz_scaled[:, 1], z=xyz_scaled[:, 2],
-                i=i, j=j, k=k,
+                x=xyz_scaled[:, 0],
+                y=xyz_scaled[:, 1],
+                z=xyz_scaled[:, 2],
+                i=i,
+                j=j,
+                k=k,
                 intensity=val,
                 intensitymode="vertex",
                 colorscale=colorscale,
-                cmin=min_v,
-                cmax=max_v,
+                cmin=np.min(val),
+                cmax=np.max(val),
                 flatshading=True,
-                lighting=dict(ambient=0.9, diffuse=0.1, specular=0.0),
+                lighting=dict(
+                    ambient=0.9,
+                    diffuse=0.1,
+                    specular=0.0
+                ),
                 colorbar=dict(
-                    title=dict(text=vis_mode, side="right", font=dict(size=12)),
+                    title=dict(
+                        text=vis_mode,
+                        side="right",
+                        font=dict(size=12)
+                    ),
                     tickvals=tick_vals,
                     ticktext=tick_text,
                     len=0.5,
@@ -785,15 +840,25 @@ if st.session_state.predictions:
                 opacity=1.0
             )
             wire = go.Scatter3d(
-                x=x_lines, y=y_lines, z=z_lines,
+                x=x_lines,
+                y=y_lines,
+                z=z_lines,
                 mode="lines",
-                line=dict(color="black", width=1),
+                line=dict(
+                    color="black",
+                    width=1
+                ),
                 showlegend=False
             )
             frames.append(go.Frame(
                 data=[mesh, wire],
                 name=str(idx),
-                layout=go.Layout(title=dict(text=f"{vis_mode} – Frame {frame_indices[idx]}", font=dict(size=14)))
+                layout=go.Layout(
+                    title=dict(
+                        text=f"{vis_mode} – Frame {frame_indices[idx]}",
+                        font=dict(size=14)
+                    )
+                )
             ))
 
         # Create Plotly figure
@@ -801,17 +866,29 @@ if st.session_state.predictions:
         fig = go.Figure(
             data=[
                 go.Mesh3d(
-                    x=xyz_scaled[:, 0], y=xyz_scaled[:, 1], z=xyz_scaled[:, 2],
-                    i=i, j=j, k=k,
+                    x=xyz_scaled[:, 0],
+                    y=xyz_scaled[:, 1],
+                    z=xyz_scaled[:, 2],
+                    i=i,
+                    j=j,
+                    k=k,
                     intensity=frame_values[frame_idx],
                     intensitymode="vertex",
                     colorscale=colorscale,
                     cmin=min_v,
                     cmax=max_v,
                     flatshading=True,
-                    lighting=dict(ambient=0.9, diffuse=0.1, specular=0.0),
+                    lighting=dict(
+                        ambient=0.9,
+                        diffuse=0.1,
+                        specular=0.0
+                    ),
                     colorbar=dict(
-                        title=dict(text=vis_mode, side="right", font=dict(size=12)),
+                        title=dict(
+                            text=vis_mode,
+                            side="right",
+                            font=dict(size=12)
+                        ),
                         tickvals=tick_vals,
                         ticktext=tick_text,
                         len=0.5,
@@ -823,20 +900,28 @@ if st.session_state.predictions:
                     opacity=1.0
                 ),
                 go.Scatter3d(
-                    x=x_lines, y=y_lines, z=z_lines,
+                    x=x_lines,
+                    y=y_lines,
+                    z=z_lines,
                     mode="lines",
-                    line=dict(color="black", width=1),
+                    line=dict(
+                        color="black",
+                        width=1
+                    ),
                     showlegend=False
                 )
             ],
             frames=frames,
             layout=go.Layout(
-                title=dict(text=f"{vis_mode} – Frame {frame_indices[frame_idx]}", font=dict(size=14)),
+                title=dict(
+                    text=f"{vis_mode} – Frame {frame_indices[frame_idx]}",
+                    font=dict(size=14)
+                ),
                 scene=dict(
-                    xaxis_title='X',
-                    yaxis_title='Y (Height)',
-                    zaxis_title='Z',
-                    aspectmode='data',
+                    xaxis_title="X",
+                    yaxis_title="Y (Height)",
+                    zaxis_title="Z",
+                    aspectmode="data",
                     camera=dict(
                         up=dict(x=0, y=1, z=0),
                         eye=dict(x=1.5, y=1.5, z=2)
@@ -848,12 +933,16 @@ if st.session_state.predictions:
                         dict(
                             method="animate",
                             label=str(frame_indices[k]),
-                            args=[[str(k)], {"mode": "immediate", "frame": {"duration": 300, "redraw": True}, "transition": {"duration": 100}}]
+                            args=[[str(k)], {
+                                "mode": "immediate",
+                                "frame": {"duration": 300, "redraw": True},
+                                "transition": {"duration": 100}
+                            }]
                         ) for k in range(len(frame_values))
                     ],
                     "x": 0.1,
                     "xanchor": "left",
-                    "y": 0.1,
+                    "y": -0.1,
                     "yanchor": "top",
                     "len": 0.9,
                     "font": {"size": 10}
@@ -861,13 +950,28 @@ if st.session_state.predictions:
                 updatemenus=[{
                     "type": "buttons",
                     "buttons": [
-                        {"label": "Play", "method": "animate", "args": [None, {"frame": {"duration": 300, "redraw": True}, "fromcurrent": True}]},
-                        {"label": "Pause", "method": "animate", "args": [[None], {"mode": "immediate", "frame": {"duration": 0}, "transition": {"duration": 0}}]}
+                        {
+                            "label": "Play",
+                            "method": "animate",
+                            "args": [None, {
+                                "frame": {"duration": 300, "redraw": True},
+                                "fromcurrent": True
+                            }]
+                        },
+                        {
+                            "label": "Pause",
+                            "method": "animate",
+                            "args": [[None], {
+                                "mode": "immediate",
+                                "frame": {"duration": 0},
+                                "transition": {"duration": 0}
+                            }]
+                        }
                     ],
                     "direction": "left",
                     "x": 0.1,
                     "xanchor": "left",
-                    "y": 0,
+                    "y": -0.2,
                     "yanchor": "top",
                     "font": {"size": 10}
                 }]
@@ -909,12 +1013,13 @@ st.markdown("""
 2. Three types of recycled aggregates (RA) were considered: RCA, RCL, RBA.
 3. Two types of FRP were considered: GFRP and CFRP.
 4. CATO-MZW: Hybridised Categorical Boosting with modified Zhou and Wu model (axial stress-strain).
-5. CATO-LSTMO: Hybridised Categorical Boosting with Long-Short Term Memory Optimisation (axial and hoop stress-strains).
+5. CATO-LSTMO: Hybridised Categorical Boosting with Long-Short Term Memory Optimisation (CFEA).
 6. Visualizations are generated using ML predictions, styled to resemble Abaqus FEA outputs for familiarity.
+7. 3D visualizations map 12 frames to stress-strain curve, with frame 21 showing maximum load.
 """)
 footer = """
 <div class="footer">
-    <p>© 2025 My Streamlit App. All rights reserved. | Temitope E. Dada, Guobin Gong, Jun Xia, Luigi Di Sarno | For Queries: <a href="mailto: T.Dada19@example.com"> T.Dada19@example.com</a></p>
+    <p>© 2025 My Streamlit App. All rights reserved. | Temitope E. Dada, Guobin Gong, Jun Xia, Luigi Di Sarno | For Queries: <a href="mailto:T.Dada19@example.com">T.Dada19@example.com</a></p>
 </div>
 """
 st.markdown(footer, unsafe_allow_html=True)
