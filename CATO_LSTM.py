@@ -171,26 +171,36 @@ with st.form("input_form"):
     
     if aggregate_type != 'NA':
         st.subheader("Aggregate Properties")
-        percentage_rca = st.number_input("Percentage of RCA replacement by weight", value=50.00, format="%.2f")
-        max_rca_size = st.number_input("Maximum diameter of the RCA (mm)", value=31.50, format="%.2f")
+        percentage_rca = st.number_input("Percentage of RCA replacement by weight (%)",
+                                         min_value=0.0, max_value=100.0, value=50.00, format="%.2f")
+        max_rca_size = st.number_input("Maximum diameter of the RCA (mm)",
+                                       min_value=10.0, max_value=70.0, value=31.50, format="%.2f")
     else:
         percentage_rca = 0.0
-        max_rca_size = st.number_input("Maximum diameter of the RCA (mm)", value=31.50, format="%.2f")
+        max_rca_size = st.number_input("Maximum diameter of the RCA (mm)",
+                                       min_value=10.0, max_value=70.0, value=31.50, format="%.2f")
 
     st.subheader("Cementitious Property")
-    water_cement_ratio = st.number_input("Water-to-cement ratio", value=0.35, format="%.2f")
+    water_cement_ratio = st.number_input("Water-to-cement ratio",
+                                         min_value=0.30, max_value=0.62, value=0.35, format="%.2f")
 
     st.subheader("Geometry Properties")
-    diameter = st.number_input("Diameter of the concrete cylinder (mm)", value=150.00, format="%.2f")
-    height = st.number_input("Height of the concrete cylinder (mm)", value=300.00, format="%.2f")
+    diameter = st.number_input("Diameter of the concrete cylinder (mm)",
+                               min_value=100.0, max_value=200.0, value=150.00, format="%.2f")
+    height = st.number_input("Height of the concrete cylinder (mm)",
+                             min_value=200.0, max_value=600.0, value=300.00, format="%.2f")
 
     st.subheader("Concrete Properties")
-    unconfined_strength = st.number_input("Unconfined Strength (MPa)", value=50.65, format="%.2f")
-    unconfined_strain = st.number_input("Unconfined Strain", value=0.002, format="%.5f")
+    unconfined_strength = st.number_input("Unconfined Strength (MPa)",
+                                          min_value=16.8, max_value=78.4, value=50.65, format="%.2f")
+    unconfined_strain = st.number_input("Unconfined Strain",
+                                        min_value=0.0019, max_value=0.0035, value=0.002, format="%.5f")
 
     st.subheader("FRP Properties")
-    fibre_modulus = st.number_input("Fibre Modulus (MPa)", value=272730.0)
-    frp_overall_thickness = st.number_input("FRP Overall Thickness (mm)", value=0.167, format="%.3f")
+    fibre_modulus = st.number_input("Fibre Modulus (MPa)",
+                                    min_value=18600.0, max_value=272730.0, value=272730.0)
+    frp_overall_thickness = st.number_input("FRP Overall Thickness (mm)",
+                                            min_value=0.11, max_value=3.4, value=0.167, format="%.3f")
     frp_type = st.selectbox("Fibre Type", ["GFRP", "CFRP"], index=0, key="frp_type_selectbox")
 
     st.subheader("Stress-Strain Model")
@@ -198,7 +208,7 @@ with st.form("input_form"):
 
     st.subheader("Displacement Parameter")
     max_displacement = st.number_input("Maximum Displacement (mm)", min_value=0.1, value=10.0)
-
+    
     # Conditional logic
     fibre_type = 1 if frp_type == 'GFRP' else 3
     agg_type = 1 if aggregate_type == 'NA' else 2 if aggregate_type == 'RCA' else 3 if aggregate_type == 'RCL' else 4
