@@ -556,7 +556,7 @@ if st.session_state.predictions:
                              bottom_ring, top_ring, top_surface_nodes, stress_interp, strain_interp, 
                              max_displacement):
             all_scaled = []
-            for idx in range(21):
+            for idx in range(11):
                 if idx == 0:
                     scaled = np.zeros(node_count)
                 else:
