@@ -155,7 +155,7 @@ if submit_button:
                                                   unconfined_strength, unconfined_strain, fibre_modulus,
                                                   frp_overall_thickness, agg_type, concrete_modulus]]))
     
-    confinement_stress = 2 * rupture_strain * fibre_mod / diameter
+    confinement_stress = 2 * rupture_strain * fibre_modulus / diameter
 
     input_data = [fibre_type, diameter, height, percentage_rca, max_rca_size, water_cement_ratio, unconfined_strength,
                   unconfined_strain, fibre_modulus, frp_overall_thickness, agg_type, concrete_modulus, rupture_strain,
@@ -574,7 +574,7 @@ if st.session_state.predictions:
     def generate_edges():
         edge_set = set()
         for tri in zip(i, j, k):
-            for a in, b in [(0, 1), (1, 2), (2, 0)]:
+            for a, b in [(0, 1), (1, 2), (2, 0)]:
                 edge_set.add(tuple(sorted((tri[a], tri[b]))))
         edges = list(edge_set)
         x_lines, y_lines, z_lines = [], [], []
@@ -652,7 +652,7 @@ if st.session_state.predictions:
                 intensitymode="vertex",
                 colorscale=colorscale,
                 cmin=min_v,
-                cmax=cmax_v,
+                cmax=max_v,
                 flatshading=False,
                 lighting=dict(
                     ambient=0.9,
