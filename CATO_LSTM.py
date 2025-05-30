@@ -179,6 +179,8 @@ if 'stress_strain_model' not in st.session_state:
     st.session_state.stress_strain_model = None
 if 'selected_plot' not in st.session_state:
     st.session_state.selected_plot = None
+if 'animation_triggered' not in st.session_state:
+    st.session_state.animation_triggered = False
 
 # Title
 st.title("FRCRAC Predictor and Visualisation")
@@ -366,7 +368,6 @@ if st.session_state.predictions:
     # Reset animation_triggered on plot switch
     if st.session_state.selected_plot != selected_plot:
         st.session_state.animation_triggered = False
-        st.session_state.selected_download_frame = 0
         st.session_state.selected_plot = selected_plot
 
     # Analytical Setup for Load-Displacement and Stress-Strain Curves
@@ -423,7 +424,7 @@ if st.session_state.predictions:
             strain.append(strain_at_top)
             stress.append(stress_at_base)
             current_displacement += delta_displacement
-        return np.array(displacement), np.array(load), np.array(strain), np.array(stress)
+        return np.array(displacement), np.array(load), np.array(stress), np.array(stress)
 
     # Visualization Logic
     if selected_plot == "Load-Displacement Curve":
@@ -552,20 +553,6 @@ if st.session_state.predictions:
                 ticktext = [f"{v:.5f}" for v in ticks]
             return colorscale, ticks, ticktext, min_val, max_val
 
-        # Initialize session state for animation
-        if "animation_triggered" not in st.session_state:
-            st.session_state.animation_triggered = False
-        if "selected_download_frame" not in st.session_state:
-            st.session_state.selected_download_frame = 0
-
-        # Define vis_mode
-        vis_mode_map = {
-            "Stress Contours": "Stress (MPa)",
-            "Strain Contours": "Strain (%)",
-            "Displacement Contours": "Displacement (mm)"
-        }
-        vis_mode = vis_mode_map[selected_plot]
-
         # Compute single frame
         def compute_single_frame(idx, vis_mode, node_count, stress_model, strain_model, disp_model, 
                                 stress_scaler, strain_scaler, disp_scaler, unconfined_strength, 
@@ -649,12 +636,19 @@ if st.session_state.predictions:
             y_lines.extend([p1[1], p2[1], None])
             z_lines.extend([p1[2], p2[2], None])
 
+        # Define vis_mode
+        vis_mode_map = {
+            "Stress Contours": "Stress (MPa)",
+            "Strain Contours": "Strain (%)",
+            "Displacement Contours": "Displacement (mm)"
+        }
+        vis_mode = vis_mode_map[selected_plot]
+
         # Show Play Animation button initially
         if st.button("Play Animation"):
             st.session_state.animation_triggered = True
-            st.session_state.selected_download_frame = 0  # Reset on play
 
-        # Animation and slider logic
+        # Animation and Plotly logic
         if st.session_state.animation_triggered:
             # Compute all frames
             @st.cache_data
@@ -680,10 +674,6 @@ if st.session_state.predictions:
                 max_displacement, stress_model, strain_model, disp_model, 
                 stress_scaler, strain_scaler, disp_scaler
             )
-
-            # Frame selection slider
-            frame_idx = st.slider("Select Animation Frame", 0, NUM_FRAMES - 1, 0, key="animation_frame_idx")
-            st.session_state.selected_download_frame = frame_idx
 
             # Create Plotly frames
             frames = []
@@ -723,14 +713,14 @@ if st.session_state.predictions:
                     layout=go.Layout(title=f"{vis_mode} – Frame {idx}")
                 ))
 
-            # Create Plotly figure for current frame
-            colorscale, tick_vals, tick_text, min_v, max_v = create_abaqus_colorscale(frame_values[frame_idx])
+            # Initial frame (frame 0)
+            colorscale, tick_vals, tick_text, min_v, max_v = create_abaqus_colorscale(frame_values[0])
             fig = go.Figure(
                 data=[
                     go.Mesh3d(
                         x=xyz_scaled[:, 0], y=xyz_scaled[:, 1], z=xyz_scaled[:, 2],
                         i=i, j=j, k=k,
-                        intensity=frame_values[frame_idx],
+                        intensity=frame_values[0],
                         intensitymode="vertex",
                         colorscale=colorscale,
                         cmin=min_v,
@@ -758,7 +748,7 @@ if st.session_state.predictions:
                 ],
                 frames=frames,
                 layout=go.Layout(
-                    title=dict(text=f"{vis_mode} – Frame {frame_idx}", font=dict(size=14)),
+                    title=dict(text=f"{vis_mode} – Frame 0", font=dict(size=14)),
                     scene=dict(
                         xaxis_title="X",
                         yaxis_title="Y (Height)",
@@ -815,37 +805,32 @@ if st.session_state.predictions:
                 )
             )
 
-            # Enable touch interactions
-            fig.update_layout(
-                dragmode="orbit",
-                scene_dragmode="orbit",
-                hovermode=False
-            )
-
+            fig.update_layout(dragmode="orbit", scene_dragmode="orbit", hovermode=False)
             st.plotly_chart(fig, use_container_width=True)
 
-            # Frame download logic
-            st.checkbox("Enable Frame Download", key="download_enabled")
-            if st.session_state.get("download_enabled", False):
-                download_frame_idx = np.clip(st.session_state.selected_download_frame, 0, NUM_FRAMES - 1)
-                # Create a figure for the selected frame
-                frame_colorscale, frame_tick_vals, frame_tick_text, frame_min_v, frame_max_v = create_abaqus_colorscale(frame_values[download_frame_idx])
+            # Frame download: user picks a frame index via Streamlit dropdown
+            frame_options = [f"Frame {idx}" for idx in range(NUM_FRAMES)]
+            selected_frame_label = st.selectbox("Select Frame to Download", frame_options)
+            selected_frame_idx = int(selected_frame_label.split()[1])
+
+            if st.button("Download Selected Frame as PNG"):
+                colorscale, tick_vals, tick_text, min_v, max_v = create_abaqus_colorscale(frame_values[selected_frame_idx])
                 download_fig = go.Figure(
                     data=[
                         go.Mesh3d(
                             x=xyz_scaled[:, 0], y=xyz_scaled[:, 1], z=xyz_scaled[:, 2],
                             i=i, j=j, k=k,
-                            intensity=frame_values[download_frame_idx],
+                            intensity=frame_values[selected_frame_idx],
                             intensitymode="vertex",
-                            colorscale=frame_colorscale,
-                            cmin=frame_min_v,
-                            cmax=frame_max_v,
+                            colorscale=colorscale,
+                            cmin=min_v,
+                            cmax=max_v,
                             flatshading=False,
                             lighting=dict(ambient=0.9, diffuse=0.5, specular=0.1),
                             colorbar=dict(
                                 title=dict(text=vis_mode, side="right", font=dict(size=12)),
-                                tickvals=frame_tick_vals,
-                                ticktext=frame_tick_text,
+                                tickvals=tick_vals,
+                                ticktext=tick_text,
                                 len=0.5,
                                 x=0.9,
                                 thickness=15,
@@ -862,7 +847,7 @@ if st.session_state.predictions:
                         )
                     ],
                     layout=go.Layout(
-                        title=dict(text=f"{vis_mode} – Frame {download_frame_idx}", font=dict(size=16)),
+                        title=dict(text=f"{vis_mode} – Frame {selected_frame_idx}", font=dict(size=16)),
                         scene=dict(
                             xaxis_title="X",
                             yaxis_title="Y (Height)",
@@ -873,21 +858,18 @@ if st.session_state.predictions:
                         margin=dict(l=10, r=50, t=50, b=50)
                     )
                 )
+                buf = BytesIO()
+                download_fig.write_image(buf, format="png", engine="kaleido", width=800, height=600)
+                buf.seek(0)
+                st.download_button(
+                    label=f"Download Frame {selected_frame_idx} – {vis_mode}",
+                    data=buf,
+                    file_name=f"{vis_mode.replace(' ', '_').lower()}_frame_{selected_frame_idx}.png",
+                    mime="image/png"
+                )
 
-                if st.button(f"Download Frame {download_frame_idx} as PNG"):
-                    buf = BytesIO()
-                    download_fig.write_image(buf, format="png", engine="kaleido", width=800, height=600)
-                    buf.seek(0)
-                    st.download_button(
-                        label=f"Download Frame {download_frame_idx} – {vis_mode}",
-                        data=buf,
-                        file_name=f"{vis_mode.replace(' ', '_').lower()}_frame_{download_frame_idx}.png",
-                        mime="image/png"
-                    )
-            else:
-                st.warning("Enable frame download to save the selected frame as PNG.")
         else:
-            st.warning("Click 'Play Animation' to view the 3D contour animation and enable frame selection.")
+            st.warning("Click 'Play Animation' to view the 3D contour animation.")
 
     # Performance Summary
     st.subheader("Performance Summary")
