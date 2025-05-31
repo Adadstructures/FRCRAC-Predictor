@@ -813,13 +813,13 @@ if st.session_state.predictions:
                     flatshading=False,
                     lighting=dict(ambient=0.9, diffuse=0.5, specular=0.1),
                     colorbar=dict(
-                        title=dict(text=vis_mode, side="right", font=dict(size=12)),
+                        title=dict(text=vis_mode, side="right", font=dict(size=16)),
                         tickvals=tick_vals,
                         ticktext=tick_text,
                         len=0.5,
                         x=0.9,
                         thickness=15,
-                        tickfont=dict(size=10)
+                        tickfont=dict(size=14)
                     ),
                     showscale=True,
                     opacity=1.0
@@ -832,11 +832,14 @@ if st.session_state.predictions:
                 )
             ],
             layout=go.Layout(
-                title=f"{vis_mode} – Frame {selected_frame_idx}",
+                title=dict(
+                    text=f"{vis_mode} – Frame {selected_frame_idx}",
+                    font=dict(size=18)
+                ),
                 scene=dict(
-                    xaxis_title="X",
-                    yaxis_title="Y (Height)",
-                    zaxis_title="Z",
+                    xaxis=dict(title=dict(text="X", font=dict(size=16))), 
+                    yaxis=dict(title=dict(text="Y (Height)", font=dict(size=16))), 
+                    zaxis=dict(title=dict(text="Z", font=dict(size=16))), 
                     aspectmode="data",
                     camera=dict(up=dict(x=0, y=1, z=0), eye=dict(x=1.25, y=1.5, z=1.25))
                 ),
