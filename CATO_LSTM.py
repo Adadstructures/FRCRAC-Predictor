@@ -179,8 +179,6 @@ if 'stress_strain_model' not in st.session_state:
     st.session_state.stress_strain_model = None
 if 'selected_plot' not in st.session_state:
     st.session_state.selected_plot = None
-if 'animation_triggered' not in st.session_state:
-    st.session_state.animation_triggered = False
 
 # Title
 st.title("FRCRAC Predictor and Visualisation")
@@ -364,11 +362,6 @@ if st.session_state.predictions:
         ["Load-Displacement Curve", "Stress-Strain Curve", "Stress Contours", "Strain Contours", "Displacement Contours"],
         key="plot_type_selectbox"
     )
-
-    # Reset animation_triggered on plot switch
-    if st.session_state.selected_plot != selected_plot:
-        st.session_state.animation_triggered = False
-        st.session_state.selected_plot = selected_plot
 
     # Analytical Setup for Load-Displacement and Stress-Strain Curves
     epsilon_frp_ult = rupture_strain if stress_strain_model == 'CATO-MZW' else np.max(hoop_strains) if hoop_strains is not None else 0.0103026467
@@ -802,12 +795,10 @@ if st.session_state.predictions:
         fig.update_layout(dragmode="orbit", scene_dragmode="orbit", hovermode=False)
         st.plotly_chart(fig, use_container_width=True)
 
-        # Frame download: user picks a frame index via Streamlit dropdown
-        frame_options = [f"Frame {idx}" for idx in range(NUM_FRAMES)]
-        selected_frame_label = st.selectbox("Select Frame to Download", frame_options)
-        selected_frame_idx = int(selected_frame_label.split()[1])
+        # Frame download: user picks a frame index via Streamlit dropdown and downloads with a single button
+        selected_frame_idx = st.selectbox("Select Frame to Download", list(range(NUM_FRAMES)), format_func=lambda x: f"Frame {x}")
 
-        # Auto-generate download for selected frame
+        # Generate the plot for the selected frame
         colorscale, tick_vals, tick_text, min_v, max_v = create_abaqus_colorscale(frame_values[selected_frame_idx])
         download_fig = go.Figure(
             data=[
@@ -841,24 +832,25 @@ if st.session_state.predictions:
                 )
             ],
             layout=go.Layout(
-                title=dict(text=f"{vis_mode} – Frame {selected_frame_idx}", font=dict(size=16)),
+                title=f"{vis_mode} – Frame {selected_frame_idx}",
                 scene=dict(
                     xaxis_title="X",
                     yaxis_title="Y (Height)",
                     zaxis_title="Z",
                     aspectmode="data",
-                    camera=dict(
-                        up=dict(x=0, y=1, z=0),
-                        eye=dict(x=1.25, y=1.5, z=1.25)
-                    )
+                    camera=dict(up=dict(x=0, y=1, z=0), eye=dict(x=1.25, y=1.5, z=1.25))
                 ),
                 height=600,
                 margin=dict(l=10, r=50, t=50, b=50)
             )
         )
+
+        # Generate PNG in memory
         buf = BytesIO()
         download_fig.write_image(buf, format="png", engine="kaleido", width=800, height=600)
         buf.seek(0)
+
+        # Single download button with dynamic file name
         st.download_button(
             label=f"Download Frame {selected_frame_idx} – {vis_mode}",
             data=buf,
