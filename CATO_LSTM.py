@@ -644,45 +644,77 @@ if st.session_state.predictions:
         }
         vis_mode = vis_mode_map[selected_plot]
 
-        # Show Play Animation button initially
-        if st.button("Play Animation"):
-            st.session_state.animation_triggered = True
+        # Compute all frames
+        @st.cache_data
+        def compute_all_frames(vis_mode, node_count, unconfined_strength, frp_thickness, fibre_modulus, 
+                              bottom_center_idx, top_center_idx, bottom_ring, top_ring, top_surface_nodes, 
+                              max_displacement, _stress_model, _strain_model, _disp_model, 
+                              _stress_scaler, _strain_scaler, _disp_scaler):
+            all_scaled = []
+            for idx in range(NUM_FRAMES):
+                scaled = compute_single_frame(
+                    idx, vis_mode, node_count, _stress_model, _strain_model, _disp_model,
+                    _stress_scaler, _strain_scaler, _disp_scaler,
+                    unconfined_strength, frp_thickness, fibre_modulus, bottom_center_idx, 
+                    top_center_idx, bottom_ring, top_ring, top_surface_nodes,
+                    stress_interp, strain_interp, max_displacement
+                )
+                all_scaled.append(scaled)
+            return np.array(all_scaled)
 
-        # Animation and Plotly logic
-        if st.session_state.animation_triggered:
-            # Compute all frames
-            @st.cache_data
-            def compute_all_frames(vis_mode, node_count, unconfined_strength, frp_thickness, fibre_modulus, 
-                                  bottom_center_idx, top_center_idx, bottom_ring, top_ring, top_surface_nodes, 
-                                  max_displacement, _stress_model, _strain_model, _disp_model, 
-                                  _stress_scaler, _strain_scaler, _disp_scaler):
-                all_scaled = []
-                for idx in range(NUM_FRAMES):
-                    scaled = compute_single_frame(
-                        idx, vis_mode, node_count, _stress_model, _strain_model, _disp_model,
-                        _stress_scaler, _strain_scaler, _disp_scaler,
-                        unconfined_strength, frp_thickness, fibre_modulus, bottom_center_idx, 
-                        top_center_idx, bottom_ring, top_ring, top_surface_nodes,
-                        stress_interp, strain_interp, max_displacement
-                    )
-                    all_scaled.append(scaled)
-                return np.array(all_scaled)
+        frame_values = compute_all_frames(
+            vis_mode, node_count, unconfined_strength, frp_thickness, fibre_modulus, 
+            bottom_center_idx, top_center_idx, bottom_ring, top_ring, top_surface_nodes,
+            max_displacement, stress_model, strain_model, disp_model, 
+            stress_scaler, strain_scaler, disp_scaler
+        )
 
-            frame_values = compute_all_frames(
-                vis_mode, node_count, unconfined_strength, frp_thickness, fibre_modulus, 
-                bottom_center_idx, top_center_idx, bottom_ring, top_ring, top_surface_nodes,
-                max_displacement, stress_model, strain_model, disp_model, 
-                stress_scaler, strain_scaler, disp_scaler
+        # Create Plotly frames
+        frames = []
+        for idx, val in enumerate(frame_values):
+            colorscale, tick_vals, tick_text, min_v, max_v = create_abaqus_colorscale(val)
+            mesh = go.Mesh3d(
+                x=xyz_scaled[:, 0], y=xyz_scaled[:, 1], z=xyz_scaled[:, 2],
+                i=i, j=j, k=k,
+                intensity=val,
+                intensitymode="vertex",
+                colorscale=colorscale,
+                cmin=min_v,
+                cmax=max_v,
+                flatshading=False,
+                lighting=dict(ambient=0.9, diffuse=0.5, specular=0.1),
+                colorbar=dict(
+                    title=dict(text=vis_mode, side="right", font=dict(size=12)),
+                    tickvals=tick_vals,
+                    ticktext=tick_text,
+                    len=0.5,
+                    x=0.9,
+                    thickness=15,
+                    tickfont=dict(size=10)
+                ),
+                showscale=True,
+                opacity=1.0
             )
+            wire = go.Scatter3d(
+                x=x_lines, y=y_lines, z=z_lines,
+                mode="lines",
+                line=dict(color="black", width=1),
+                showlegend=False
+            )
+            frames.append(go.Frame(
+                data=[mesh, wire],
+                name=str(idx),
+                layout=go.Layout(title=f"{vis_mode} – Frame {idx}")
+            ))
 
-            # Create Plotly frames
-            frames = []
-            for idx, val in enumerate(frame_values):
-                colorscale, tick_vals, tick_text, min_v, max_v = create_abaqus_colorscale(val)
-                mesh = go.Mesh3d(
+        # Initial frame (frame 0)
+        colorscale, tick_vals, tick_text, min_v, max_v = create_abaqus_colorscale(frame_values[0])
+        fig = go.Figure(
+            data=[
+                go.Mesh3d(
                     x=xyz_scaled[:, 0], y=xyz_scaled[:, 1], z=xyz_scaled[:, 2],
                     i=i, j=j, k=k,
-                    intensity=val,
+                    intensity=frame_values[0],
                     intensitymode="vertex",
                     colorscale=colorscale,
                     cmin=min_v,
@@ -700,176 +732,139 @@ if st.session_state.predictions:
                     ),
                     showscale=True,
                     opacity=1.0
-                )
-                wire = go.Scatter3d(
+                ),
+                go.Scatter3d(
                     x=x_lines, y=y_lines, z=z_lines,
                     mode="lines",
                     line=dict(color="black", width=1),
                     showlegend=False
                 )
-                frames.append(go.Frame(
-                    data=[mesh, wire],
-                    name=str(idx),
-                    layout=go.Layout(title=f"{vis_mode} – Frame {idx}")
-                ))
-
-            # Initial frame (frame 0)
-            colorscale, tick_vals, tick_text, min_v, max_v = create_abaqus_colorscale(frame_values[0])
-            fig = go.Figure(
-                data=[
-                    go.Mesh3d(
-                        x=xyz_scaled[:, 0], y=xyz_scaled[:, 1], z=xyz_scaled[:, 2],
-                        i=i, j=j, k=k,
-                        intensity=frame_values[0],
-                        intensitymode="vertex",
-                        colorscale=colorscale,
-                        cmin=min_v,
-                        cmax=max_v,
-                        flatshading=False,
-                        lighting=dict(ambient=0.9, diffuse=0.5, specular=0.1),
-                        colorbar=dict(
-                            title=dict(text=vis_mode, side="right", font=dict(size=12)),
-                            tickvals=tick_vals,
-                            ticktext=tick_text,
-                            len=0.5,
-                            x=0.9,
-                            thickness=15,
-                            tickfont=dict(size=10)
-                        ),
-                        showscale=True,
-                        opacity=1.0
-                    ),
-                    go.Scatter3d(
-                        x=x_lines, y=y_lines, z=z_lines,
-                        mode="lines",
-                        line=dict(color="black", width=1),
-                        showlegend=False
+            ],
+            frames=frames,
+            layout=go.Layout(
+                title=dict(text=f"{vis_mode} – Frame 0", font=dict(size=14)),
+                scene=dict(
+                    xaxis_title="X",
+                    yaxis_title="Y (Height)",
+                    zaxis_title="Z",
+                    aspectmode="data",
+                    camera=dict(
+                        up=dict(x=0, y=1, z=0),
+                        eye=dict(x=1.25, y=1.5, z=1.25)
                     )
-                ],
-                frames=frames,
-                layout=go.Layout(
-                    title=dict(text=f"{vis_mode} – Frame 0", font=dict(size=14)),
-                    scene=dict(
-                        xaxis_title="X",
-                        yaxis_title="Y (Height)",
-                        zaxis_title="Z",
-                        aspectmode="data",
-                        camera=dict(
-                            up=dict(x=0, y=1, z=0),
-                            eye=dict(x=1.5, y=1.5, z=1.5)
-                        )
-                    ),
-                    height=600,
-                    margin=dict(l=10, r=10, t=50, b=50),
-                    sliders=[{
-                        "steps": [
-                            {
-                                "method": "animate",
-                                "label": str(k),
-                                "args": [[str(k)], {"mode": "immediate", "frame": {"duration": 300, "redraw": True}, "transition": {"duration": 100}}]
-                            } for k in range(NUM_FRAMES)
-                        ],
-                        "x": 0.1,
-                        "xanchor": "left",
-                        "y": -0.1,
-                        "yanchor": "top",
-                        "len": 0.9,
-                        "font": {"size": 10},
-                        "currentvalue": {
-                            "prefix": "Frame: ",
-                            "font": {"size": 10},
-                            "visible": True
-                        }
-                    }],
-                    updatemenus=[{
-                        "type": "buttons",
-                        "buttons": [
-                            {
-                                "label": "Play",
-                                "method": "animate",
-                                "args": [None, {"frame": {"duration": 300, "redraw": True}, "fromcurrent": True}]
-                            },
-                            {
-                                "label": "Pause",
-                                "method": "animate",
-                                "args": [[None], {"mode": "immediate", "frame": {"duration": 0}, "transition": {"duration": 0}}]
-                            }
-                        ],
-                        "direction": "left",
-                        "x": 0.1,
-                        "xanchor": "left",
-                        "y": -0.2,
-                        "yanchor": "top",
-                        "font": {"size": 10}
-                    }]
-                )
-            )
-
-            fig.update_layout(dragmode="orbit", scene_dragmode="orbit", hovermode=False)
-            st.plotly_chart(fig, use_container_width=True)
-
-            # Frame download: user picks a frame index via Streamlit dropdown
-            frame_options = [f"Frame {idx}" for idx in range(NUM_FRAMES)]
-            selected_frame_label = st.selectbox("Select Frame to Download", frame_options)
-            selected_frame_idx = int(selected_frame_label.split()[1])
-
-            if st.button("Download Selected Frame as PNG"):
-                colorscale, tick_vals, tick_text, min_v, max_v = create_abaqus_colorscale(frame_values[selected_frame_idx])
-                download_fig = go.Figure(
-                    data=[
-                        go.Mesh3d(
-                            x=xyz_scaled[:, 0], y=xyz_scaled[:, 1], z=xyz_scaled[:, 2],
-                            i=i, j=j, k=k,
-                            intensity=frame_values[selected_frame_idx],
-                            intensitymode="vertex",
-                            colorscale=colorscale,
-                            cmin=min_v,
-                            cmax=max_v,
-                            flatshading=False,
-                            lighting=dict(ambient=0.9, diffuse=0.5, specular=0.1),
-                            colorbar=dict(
-                                title=dict(text=vis_mode, side="right", font=dict(size=12)),
-                                tickvals=tick_vals,
-                                ticktext=tick_text,
-                                len=0.5,
-                                x=0.9,
-                                thickness=15,
-                                tickfont=dict(size=10)
-                            ),
-                            showscale=True,
-                            opacity=1.0
-                        ),
-                        go.Scatter3d(
-                            x=x_lines, y=y_lines, z=z_lines,
-                            mode="lines",
-                            line=dict(color="black", width=1),
-                            showlegend=False
-                        )
+                ),
+                height=600,
+                margin=dict(l=10, r=10, t=50, b=50),
+                sliders=[{
+                    "steps": [
+                        {
+                            "method": "animate",
+                            "label": str(k),
+                            "args": [[str(k)], {"mode": "immediate", "frame": {"duration": 300, "redraw": True}, "transition": {"duration": 100}}]
+                        } for k in range(NUM_FRAMES)
                     ],
-                    layout=go.Layout(
-                        title=dict(text=f"{vis_mode} – Frame {selected_frame_idx}", font=dict(size=16)),
-                        scene=dict(
-                            xaxis_title="X",
-                            yaxis_title="Y (Height)",
-                            zaxis_title="Z",
-                            aspectmode="data"
-                        ),
-                        height=600,
-                        margin=dict(l=10, r=50, t=50, b=50)
-                    )
-                )
-                buf = BytesIO()
-                download_fig.write_image(buf, format="png", engine="kaleido", width=800, height=600)
-                buf.seek(0)
-                st.download_button(
-                    label=f"Download Frame {selected_frame_idx} – {vis_mode}",
-                    data=buf,
-                    file_name=f"{vis_mode.replace(' ', '_').lower()}_frame_{selected_frame_idx}.png",
-                    mime="image/png"
-                )
+                    "x": 0.1,
+                    "xanchor": "left",
+                    "y": -0.1,
+                    "yanchor": "top",
+                    "len": 0.9,
+                    "font": {"size": 10},
+                    "currentvalue": {
+                        "prefix": "Frame: ",
+                        "font": {"size": 10},
+                        "visible": True
+                    }
+                }],
+                updatemenus=[{
+                    "type": "buttons",
+                    "buttons": [
+                        {
+                            "label": "Play",
+                            "method": "animate",
+                            "args": [None, {"frame": {"duration": 300, "redraw": True}, "fromcurrent": True}]
+                        },
+                        {
+                            "label": "Pause",
+                            "method": "animate",
+                            "args": [[None], {"mode": "immediate", "frame": {"duration": 0}, "transition": {"duration": 0}}]
+                        }
+                    ],
+                    "direction": "left",
+                    "x": 0.1,
+                    "xanchor": "left",
+                    "y": -0.2,
+                    "yanchor": "top",
+                    "font": {"size": 10}
+                }]
+            )
+        )
 
-        else:
-            st.warning("Click 'Play Animation' to view the 3D contour animation.")
+        fig.update_layout(dragmode="orbit", scene_dragmode="orbit", hovermode=False)
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Frame download: user picks a frame index via Streamlit dropdown
+        frame_options = [f"Frame {idx}" for idx in range(NUM_FRAMES)]
+        selected_frame_label = st.selectbox("Select Frame to Download", frame_options)
+        selected_frame_idx = int(selected_frame_label.split()[1])
+
+        # Auto-generate download for selected frame
+        colorscale, tick_vals, tick_text, min_v, max_v = create_abaqus_colorscale(frame_values[selected_frame_idx])
+        download_fig = go.Figure(
+            data=[
+                go.Mesh3d(
+                    x=xyz_scaled[:, 0], y=xyz_scaled[:, 1], z=xyz_scaled[:, 2],
+                    i=i, j=j, k=k,
+                    intensity=frame_values[selected_frame_idx],
+                    intensitymode="vertex",
+                    colorscale=colorscale,
+                    cmin=min_v,
+                    cmax=max_v,
+                    flatshading=False,
+                    lighting=dict(ambient=0.9, diffuse=0.5, specular=0.1),
+                    colorbar=dict(
+                        title=dict(text=vis_mode, side="right", font=dict(size=12)),
+                        tickvals=tick_vals,
+                        ticktext=tick_text,
+                        len=0.5,
+                        x=0.9,
+                        thickness=15,
+                        tickfont=dict(size=10)
+                    ),
+                    showscale=True,
+                    opacity=1.0
+                ),
+                go.Scatter3d(
+                    x=x_lines, y=y_lines, z=z_lines,
+                    mode="lines",
+                    line=dict(color="black", width=1),
+                    showlegend=False
+                )
+            ],
+            layout=go.Layout(
+                title=dict(text=f"{vis_mode} – Frame {selected_frame_idx}", font=dict(size=16)),
+                scene=dict(
+                    xaxis_title="X",
+                    yaxis_title="Y (Height)",
+                    zaxis_title="Z",
+                    aspectmode="data",
+                    camera=dict(
+                        up=dict(x=0, y=1, z=0),
+                        eye=dict(x=1.25, y=1.5, z=1.25)
+                    )
+                ),
+                height=600,
+                margin=dict(l=10, r=50, t=50, b=50)
+            )
+        )
+        buf = BytesIO()
+        download_fig.write_image(buf, format="png", engine="kaleido", width=800, height=600)
+        buf.seek(0)
+        st.download_button(
+            label=f"Download Frame {selected_frame_idx} – {vis_mode}",
+            data=buf,
+            file_name=f"{vis_mode.replace(' ', '_').lower()}_frame_{selected_frame_idx}.png",
+            mime="image/png"
+        )
 
     # Performance Summary
     st.subheader("Performance Summary")
