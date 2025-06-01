@@ -589,7 +589,10 @@ if st.session_state.predictions:
                 scaled = strain_interp(stress_scaled) * 100
             else:  # Displacement (mm)
                 norm = u_vals / (np.max(np.abs(u_vals)) or 1.0)
-                scaled = norm * max_displacement
+                frame_stress = stress_interp(idx / (NUM_FRAMES - 1))
+                frame_strain = strain_interp(frame_stress)
+                frame_displacement = frame_strain * height
+                scaled = norm * frame_displacement
                 top_ring_mean = np.mean(scaled[top_ring])
                 scaled[top_surface_nodes] = top_ring_mean
             return scaled
