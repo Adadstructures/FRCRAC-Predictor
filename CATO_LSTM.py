@@ -347,7 +347,7 @@ if st.session_state.predictions:
     confinement_stress = preds['confinement_stress']
     stress_strain_model = st.session_state.stress_strain_model
     unconfined_strength = preds['unconfined_strength']
-    frp_thickness = preds['frp_thickness']
+    frp_thickness = preds['frp_overall_thickness']
     fibre_modulus = preds['fibre_modulus']
     max_displacement = preds['max_displacement']
     diameter = preds['diameter']
