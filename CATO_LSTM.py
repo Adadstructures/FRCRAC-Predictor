@@ -681,7 +681,6 @@ if st.session_state.predictions:
                 cmax=max_v,
                 text=hover_texts,             # Add this line for hover text
                 hoverinfo='text',             # Enable text hover
-                showscale=True,
                 flatshading=False,
                 lighting=dict(ambient=0.9, diffuse=0.5, specular=0.1),
                 colorbar=dict(
