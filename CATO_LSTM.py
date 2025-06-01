@@ -668,9 +668,6 @@ if st.session_state.predictions:
         for idx, val in enumerate(frame_values):
             colorscale, tick_vals, tick_text, min_v, max_v = create_abaqus_colorscale(val)
             
-            # Prepare hover text for each node
-            hover_texts = [f"Node {i}<br>{vis_mode}: {v:.3f}" for i, v in enumerate(val)]
-
             mesh = go.Mesh3d(
                 x=xyz_scaled[:, 0], y=xyz_scaled[:, 1], z=xyz_scaled[:, 2],
                 i=i, j=j, k=k,
@@ -679,8 +676,6 @@ if st.session_state.predictions:
                 colorscale=colorscale,
                 cmin=min_v,
                 cmax=max_v,
-                text=hover_texts,             # Add this line for hover text
-                hoverinfo='text',             # Enable text hover
                 flatshading=False,
                 lighting=dict(ambient=0.9, diffuse=0.5, specular=0.1),
                 colorbar=dict(
