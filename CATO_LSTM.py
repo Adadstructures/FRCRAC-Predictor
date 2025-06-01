@@ -325,7 +325,8 @@ if submit_button:
         'rupture_strain': rupture_strain,
         'confinement_stress': confinement_stress,
         'unconfined_strength': unconfined_strength,
-        'fibre_modulus': fibre_modulus
+        'fibre_modulus': fibre_modulus,
+        'frp_overall_thickness': frp_overall_thickness
     }
     st.session_state.stress_strain_model = stress_strain_model
 
@@ -347,7 +348,7 @@ if st.session_state.predictions:
     confinement_stress = preds['confinement_stress']
     stress_strain_model = st.session_state.stress_strain_model
     unconfined_strength = preds['unconfined_strength']
-    frp_thickness = preds['frp_overall_thickness']
+    frp_overall_thickness = preds['frp_overall_thickness']
     fibre_modulus = preds['fibre_modulus']
     max_displacement = preds['max_displacement']
     diameter = preds['diameter']
@@ -546,7 +547,7 @@ if st.session_state.predictions:
         # Compute single frame
         def compute_single_frame(idx, vis_mode, node_count, stress_model, strain_model, disp_model, 
                                 stress_scaler, strain_scaler, disp_scaler, unconfined_strength, 
-                                frp_thickness, fibre_modulus, bottom_center_idx, top_center_idx, 
+                                frp_overall_thickness, fibre_modulus, bottom_center_idx, top_center_idx, 
                                 bottom_ring, top_ring, top_surface_nodes, stress_interp, strain_interp, 
                                 max_displacement):
             expected_features = [
@@ -560,7 +561,7 @@ if st.session_state.predictions:
                 return np.zeros(node_count)
             df_feat = pd.DataFrame({
                 "Unconfined_Strength (MPa)": [unconfined_strength] * node_count,
-                "FRP_Thickness (mm)": [frp_thickness] * node_count,
+                "FRP_Thickness (mm)": [frp_overall_thickness] * node_count,
                 "Fibre_Modulus (MPa)": [fibre_modulus] * node_count,
                 "Frame_Index": [idx] * node_count,
                 "Node_Label": list(range(node_count))
@@ -639,7 +640,7 @@ if st.session_state.predictions:
 
         # Compute all frames
         @st.cache_data
-        def compute_all_frames(vis_mode, node_count, unconfined_strength, frp_thickness, fibre_modulus, 
+        def compute_all_frames(vis_mode, node_count, unconfined_strength, frp_overall_thickness, fibre_modulus, 
                               bottom_center_idx, top_center_idx, bottom_ring, top_ring, top_surface_nodes, 
                               max_displacement, _stress_model, _strain_model, _disp_model, 
                               _stress_scaler, _strain_scaler, _disp_scaler):
@@ -648,7 +649,7 @@ if st.session_state.predictions:
                 scaled = compute_single_frame(
                     idx, vis_mode, node_count, _stress_model, _strain_model, _disp_model,
                     _stress_scaler, _strain_scaler, _disp_scaler,
-                    unconfined_strength, frp_thickness, fibre_modulus, bottom_center_idx, 
+                    unconfined_strength, frp_overall_thickness, fibre_modulus, bottom_center_idx, 
                     top_center_idx, bottom_ring, top_ring, top_surface_nodes,
                     stress_interp, strain_interp, max_displacement
                 )
@@ -656,7 +657,7 @@ if st.session_state.predictions:
             return np.array(all_scaled)
 
         frame_values = compute_all_frames(
-            vis_mode, node_count, unconfined_strength, frp_thickness, fibre_modulus, 
+            vis_mode, node_count, unconfined_strength, frp_overall_thickness, fibre_modulus, 
             bottom_center_idx, top_center_idx, bottom_ring, top_ring, top_surface_nodes,
             max_displacement, stress_model, strain_model, disp_model, 
             stress_scaler, strain_scaler, disp_scaler
