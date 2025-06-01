@@ -223,9 +223,6 @@ with st.form("input_form"):
 
     st.subheader("Stress-Strain Model")
     stress_strain_model = st.selectbox("Stress-Strain Model", ["CATO-LSTMO", "CATO-MZW"], index=0, key="stress_strain_model_selectbox")
-
-    st.subheader("Displacement Parameter")
-    max_displacement = st.number_input("Maximum Displacement (mm)", min_value=0.1, value=10.0)
     
     # Conditional logic
     fibre_type = 1 if frp_type == 'GFRP' else 3
@@ -310,7 +307,8 @@ if submit_button:
         axial_strains = predicted_strain_axial
         hoop_stresses = predicted_stress_hoop
         hoop_strains = np.abs(predicted_strain_hoop)
-
+        
+    calculated_max_displacement = np.max(axial_strains) * height
     st.session_state.predictions = {
         'axial_stresses': axial_stresses,
         'axial_strains': axial_strains,
@@ -323,8 +321,7 @@ if submit_button:
         'strain_enhancement_ratio': strain_enhancement,
         'diameter': diameter,
         'height': height,
-        'frp_thickness': frp_overall_thickness,
-        'max_displacement': max_displacement,
+        'max_displacement': calculated_max_displacement,
         'rupture_strain': rupture_strain,
         'confinement_stress': confinement_stress,
         'unconfined_strength': unconfined_strength,
