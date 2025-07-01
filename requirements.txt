@@ -12,4 +12,4 @@ scikit-learn
 plotly
 kaleido
 chromium
-chromium-driver
+
