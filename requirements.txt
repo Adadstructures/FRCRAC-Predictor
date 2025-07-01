@@ -11,4 +11,3 @@ joblib
 scikit-learn
 plotly
 kaleido
-chromium-driver
