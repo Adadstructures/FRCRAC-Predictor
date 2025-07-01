@@ -9,6 +9,5 @@ tensorflow
 keras
 joblib
 scikit-learn
-plotly
-kaleido
-chromium-browser
+plotly==5.22.0
+kaleido==0.2.1
